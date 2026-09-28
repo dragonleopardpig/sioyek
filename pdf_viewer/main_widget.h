@@ -105,6 +105,26 @@ struct BookmarkMoveData {
     std::optional<NoteArrow> initial_arrow;
 };
 
+// What an overloaded, context sensitive shortcut is currently acting on.
+//
+// Several default shortcuts deliberately do double duty to keep the number of
+// bindings a user has to memorize small (`+`/`-` resize a selected note's text,
+// the highlight letter recolors it, the highlight delete removes a rectangle).
+// That only stays predictable if every such shortcut derives the context from
+// one place, so the predicate cannot drift per command, and if the user can see
+// which context is live -- get_current_mode_string() exposes these as the `n`,
+// `b` and `w` flags for %{mode_string} and for modal command definitions.
+//
+// An active search is deliberately not part of this: it is orthogonal (a note
+// can be selected while a search is running, and `next_item` must still go to
+// the next result), and it already has its own `f` mode flag.
+enum class UiContext {
+    None,
+    NoteSelected,
+    RectangleSelected,
+    PlacingNoteArrow,
+};
+
 // Appearance of a note as its editor opened, so that Enter can persist what the
 // editor changed and Escape can put it back. Keyed by uuid because cancelling a
 // newly created note erases it from the bookmark vector.
@@ -491,6 +511,7 @@ public:
     void update_selected_bookmark_font_size(float factor);
     void update_selected_bookmark_border_width(float factor);
     bool has_selected_freetext_note();
+    UiContext current_context();
     bool eventFilter(QObject* obj, QEvent* event) override;
     void show_freetext_editor();
     void update_freetext_editor_geometry();

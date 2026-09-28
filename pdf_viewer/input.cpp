@@ -1358,6 +1358,11 @@ public:
             if (num_repeats == 0) num_repeats++;
             widget->goto_search_result(num_repeats);
         }
+        else if (num_repeats > 1) {
+            // Starting a note cannot be repeated, so refuse rather than silently
+            // discard a count the user typed on purpose.
+            show_error_message(L"A repeat count only applies while search results are active");
+        }
         else {
             widget->run_command_with_name("add_freetext_bookmark");
         }
@@ -2685,16 +2690,13 @@ public:
     AddHighlightCommand(MainWidget* w) : SymbolCommand(cname, w) {};
 
     void perform() {
-        bool has_selected_note = false;
-        if (widget->doc() && widget->selected_bookmark_index >= 0 &&
-            widget->selected_bookmark_index < widget->doc()->get_bookmarks().size()) {
-            const BookMark& bookmark = widget->doc()->get_bookmarks()[widget->selected_bookmark_index];
-            has_selected_note = bookmark.is_freetext() && !bookmark.is_box();
-        }
-        // Only divert to the note color when a note is really selected. Diverting
-        // on the control modifier alone silently discarded the highlight,
-        // because change_selected_bookmark_color is a no-op without a selection.
-        if (has_selected_note) {
+        // With a note selected the palette letter recolors it, otherwise it
+        // highlights the selected text. The context comes from current_context()
+        // rather than a local predicate so that every overloaded shortcut agrees.
+        // Diverting on the control modifier alone used to silently discard the
+        // highlight, because change_selected_bookmark_color is a no-op with
+        // nothing selected.
+        if (widget->current_context() == UiContext::NoteSelected) {
             widget->change_selected_bookmark_color(symbol);
             return;
         }
@@ -3423,7 +3425,7 @@ public:
     static inline const std::string hname = "Zoom in, or enlarge selected note text";
     ZoomInCommand(MainWidget* w) : Command(cname, w) {};
     void perform() {
-        if (widget->has_selected_freetext_note()) {
+        if (widget->current_context() == UiContext::NoteSelected) {
             widget->update_selected_bookmark_font_size(1.1f);
         }
         else {
@@ -3533,7 +3535,7 @@ public:
     ZoomOutCommand(MainWidget* w) : Command(cname, w) {};
 
     void perform() {
-        if (widget->has_selected_freetext_note()) {
+        if (widget->current_context() == UiContext::NoteSelected) {
             widget->update_selected_bookmark_font_size(1.0f / 1.1f);
         }
         else {
@@ -4070,7 +4072,9 @@ public:
 
     int get_selected_item_index() override {
         // A clicked rectangle needs no highlight tag prompt.
-        return widget->selected_rectangle_point ? 0 : GenericHighlightCommand::get_selected_item_index();
+        return widget->current_context() == UiContext::RectangleSelected
+            ? 0
+            : GenericHighlightCommand::get_selected_item_index();
     }
 
     void perform_with_highlight_selected() override {

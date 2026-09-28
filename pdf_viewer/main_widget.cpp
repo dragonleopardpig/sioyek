@@ -8766,6 +8766,12 @@ std::string MainWidget::get_current_mode_string() {
     res += opengl_widget->get_scratchpad() ? "s" : "S";
     res += (opengl_widget->get_is_searching(nullptr)) ? "f" : "F";
     res += (is_menu_focused()) ? "m" : "M";
+    // Contexts that overload an existing shortcut. Without these the user has no
+    // way to tell why `+`/`-` resized a note instead of zooming.
+    UiContext context = current_context();
+    res += (context == UiContext::NoteSelected) ? "n" : "N";
+    res += (context == UiContext::RectangleSelected) ? "b" : "B";
+    res += (context == UiContext::PlacingNoteArrow) ? "w" : "W";
 
     if (main_document_view) {
         res += (main_document_view->selected_character_rects.size() > 0) ? "t" : "T";
@@ -9218,10 +9224,31 @@ void MainWidget::update_selected_bookmark_font_size(float factor) {
 }
 
 bool MainWidget::has_selected_freetext_note() {
-    return doc() && selected_bookmark_index >= 0 &&
-        selected_bookmark_index < doc()->get_bookmarks().size() &&
-        doc()->get_bookmarks()[selected_bookmark_index].is_freetext() &&
-        !doc()->get_bookmarks()[selected_bookmark_index].is_box();
+    if (!doc() || !main_document_view) return false;
+    if (selected_bookmark_index < 0 || selected_bookmark_index >= doc()->get_bookmarks().size()) return false;
+
+    const BookMark& bookmark = doc()->get_bookmarks()[selected_bookmark_index];
+    if (!bookmark.is_freetext() || bookmark.is_box()) return false;
+
+    // The note is being typed into, so it stays the context regardless of the view.
+    if (freetext_editor && freetext_editor->isVisible()) return true;
+
+    // A context the user cannot see must not capture a shortcut: once the selected
+    // note has been scrolled off screen, `-` has to mean zoom out again.
+    return bookmark.get_rectangle().to_window_normalized(main_document_view).is_visible();
+}
+
+UiContext MainWidget::current_context() {
+    if (placing_note_arrow_index >= 0 || note_arrow_drag) {
+        return UiContext::PlacingNoteArrow;
+    }
+    if (has_selected_freetext_note()) {
+        return UiContext::NoteSelected;
+    }
+    if (selected_rectangle_point) {
+        return UiContext::RectangleSelected;
+    }
+    return UiContext::None;
 }
 
 void MainWidget::update_selected_bookmark_border_width(float factor) {
