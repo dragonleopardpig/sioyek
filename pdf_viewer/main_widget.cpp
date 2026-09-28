@@ -9333,8 +9333,17 @@ void MainWidget::finish_freetext_edit() {
     std::wstring text = freetext_editor->toPlainText().toStdWString();
     freetext_editor->hide();
     setFocus();
+
+    // Detach the captured appearance before running the command, so that nothing
+    // the command reaches can restore it and undo what is about to be saved.
+    std::optional<FreetextEditAppearance> appearance = freetext_edit_appearance;
+    freetext_edit_appearance = {};
+
     handle_pending_text_command(text);
-    commit_freetext_edit_appearance();
+
+    if (appearance) {
+        commit_freetext_edit_appearance(appearance.value());
+    }
     invalidate_render();
 }
 
@@ -9391,12 +9400,7 @@ void MainWidget::restore_freetext_edit_appearance() {
     for (int component = 0; component < 3; ++component) bookmark.color[component] = appearance.color[component];
 }
 
-void MainWidget::commit_freetext_edit_appearance() {
-    if (!freetext_edit_appearance) return;
-
-    FreetextEditAppearance appearance = freetext_edit_appearance.value();
-    freetext_edit_appearance = {};
-
+void MainWidget::commit_freetext_edit_appearance(const FreetextEditAppearance& appearance) {
     // A new note is inserted carrying its in-memory appearance, so only an edit
     // of an existing note needs the border width and color written back.
     if (!doc() || appearance.is_new_note) return;
@@ -11264,6 +11268,10 @@ DocumentView* MainWidget::helper_document_view(){
 }
 
 void MainWidget::hide_command_line_edit(){
+    // Dismissing the editor without saving is a cancel, so put the note's
+    // appearance back. A no-op when handle_escape already restored it, and it
+    // keeps freetext_edit_appearance from outliving the editor.
+    restore_freetext_edit_appearance();
     freetext_editor->hide();
     text_command_line_edit->setText("");
     text_command_line_edit_container->hide();

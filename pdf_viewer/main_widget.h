@@ -519,7 +519,7 @@ public:
     bool finish_freetext_edit_keeping_selection();
     void capture_freetext_edit_appearance();
     void restore_freetext_edit_appearance();
-    void commit_freetext_edit_appearance();
+    void commit_freetext_edit_appearance(const FreetextEditAppearance& appearance);
     int freetext_resize_edges_at(WindowPos pos);
     //bool eventFilter(QObject* obj, QEvent* event) override;
     void set_command_textbox_text(const std::wstring& txt);
