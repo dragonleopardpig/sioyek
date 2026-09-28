@@ -29,6 +29,7 @@ copy_link
 copy_window_size_config
 create_visible_portal
 debug
+decrease_freetext_border_width
 decrease_freetext_font_size
 delete_bookmark
 delete_freehand_drawings
@@ -105,6 +106,7 @@ history_back
 history_forward
 import
 import_annotations
+increase_freetext_border_width
 increase_freetext_font_size
 keyboard_overview
 keyboard_select

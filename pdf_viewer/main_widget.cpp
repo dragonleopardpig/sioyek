@@ -1012,7 +1012,7 @@ MainWidget::MainWidget(fz_context* mupdf_context,
     freetext_editor->viewport()->setCursor(Qt::IBeamCursor);
     freetext_editor->setStyleSheet("QPlainTextEdit { background: #fffde7; border: none; selection-background-color: #377ac4; selection-color: white; }");
     freetext_editor->setWordWrapMode(QTextOption::WordWrap);
-    freetext_editor->setToolTip("Enter or click elsewhere: save · Empty text: rectangle · Shift+Enter: new line · Escape: cancel · $...$: inline math · $$...$$: display math · Ctrl +/-: text size");
+    freetext_editor->setToolTip("Enter or click elsewhere: save · Empty text: rectangle · Shift+Enter: new line · Escape: cancel · $...$: inline math · $$...$$: display math · Ctrl +/-: border width");
     freetext_editor->installEventFilter(this);
     QObject::connect(freetext_editor, &QPlainTextEdit::textChanged, this, [this]() {
         if (freetext_editor->isVisible()) {
@@ -9205,6 +9205,26 @@ void MainWidget::update_selected_bookmark_font_size(float factor) {
     invalidate_render();
 }
 
+bool MainWidget::has_selected_freetext_note() {
+    return doc() && selected_bookmark_index >= 0 &&
+        selected_bookmark_index < doc()->get_bookmarks().size() &&
+        doc()->get_bookmarks()[selected_bookmark_index].is_freetext() &&
+        !doc()->get_bookmarks()[selected_bookmark_index].is_box();
+}
+
+void MainWidget::update_selected_bookmark_border_width(float factor) {
+    if (!has_selected_freetext_note()) return;
+    BookMark& bookmark = doc()->get_bookmarks()[selected_bookmark_index];
+    float width = std::clamp(bookmark.border_width * factor, 0.5f, 32.0f);
+    if (pending_command_instance && pending_command_instance->get_name() == "add_freetext_bookmark") {
+        bookmark.border_width = width;
+    }
+    else {
+        doc()->update_bookmark_border_width(selected_bookmark_index, width);
+    }
+    invalidate_render();
+}
+
 bool MainWidget::eventFilter(QObject* obj, QEvent* event) {
     if (obj == freetext_editor && event->type() == QEvent::KeyPress) {
         auto* key = static_cast<QKeyEvent*>(event);
@@ -9227,7 +9247,7 @@ bool MainWidget::eventFilter(QObject* obj, QEvent* event) {
                 return true;
             }
             if (key->key() == Qt::Key_Plus || key->key() == Qt::Key_Equal || key->key() == Qt::Key_Minus) {
-                update_selected_bookmark_font_size(key->key() == Qt::Key_Minus ? 1.0f / 1.1f : 1.1f);
+                update_selected_bookmark_border_width(key->key() == Qt::Key_Minus ? 1.0f / 1.25f : 1.25f);
                 return true;
             }
         }

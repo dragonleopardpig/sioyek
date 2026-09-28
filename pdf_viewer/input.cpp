@@ -2511,6 +2511,24 @@ public:
     }
 };
 
+class IncreaseFreetextBorderWidthCommand : public Command {
+public:
+    static inline const std::string cname = "increase_freetext_border_width";
+    static inline const std::string hname = "Increase the selected note border width";
+    IncreaseFreetextBorderWidthCommand(MainWidget* w) : Command(cname, w) {};
+
+    void perform() { widget->update_selected_bookmark_border_width(1.25f); }
+};
+
+class DecreaseFreetextBorderWidthCommand : public Command {
+public:
+    static inline const std::string cname = "decrease_freetext_border_width";
+    static inline const std::string hname = "Decrease the selected note border width";
+    DecreaseFreetextBorderWidthCommand(MainWidget* w) : Command(cname, w) {};
+
+    void perform() { widget->update_selected_bookmark_border_width(1.0f / 1.25f); }
+};
+
 
 class GotoHighlightCommand : public GenericGotoLocationCommand {
 public:
@@ -3399,11 +3417,16 @@ public:
 class ZoomInCommand : public Command {
 public:
     static inline const std::string cname = "zoom_in";
-    static inline const std::string hname = "Zoom in";
+    static inline const std::string hname = "Zoom in, or enlarge selected note text";
     ZoomInCommand(MainWidget* w) : Command(cname, w) {};
     void perform() {
-        widget->main_document_view->zoom_in();
-        widget->last_smart_fit_page = {};
+        if (widget->has_selected_freetext_note()) {
+            widget->update_selected_bookmark_font_size(1.1f);
+        }
+        else {
+            widget->main_document_view->zoom_in();
+            widget->last_smart_fit_page = {};
+        }
     }
 };
 
@@ -3503,12 +3526,17 @@ public:
 class ZoomOutCommand : public Command {
 public:
     static inline const std::string cname = "zoom_out";
-    static inline const std::string hname = "Zoom out";
+    static inline const std::string hname = "Zoom out, or shrink selected note text";
     ZoomOutCommand(MainWidget* w) : Command(cname, w) {};
 
     void perform() {
-        widget->main_document_view->zoom_out();
-        widget->last_smart_fit_page = {};
+        if (widget->has_selected_freetext_note()) {
+            widget->update_selected_bookmark_font_size(1.0f / 1.1f);
+        }
+        else {
+            widget->main_document_view->zoom_out();
+            widget->last_smart_fit_page = {};
+        }
     }
 };
 
@@ -7397,6 +7425,8 @@ CommandManager::CommandManager(ConfigManager* config_manager) {
     register_command<GotoHighlightCommand>();
     register_command<IncreaseFreetextBookmarkFontSizeCommand>();
     register_command<DecreaseFreetextBookmarkFontSizeCommand>();
+    register_command<IncreaseFreetextBorderWidthCommand>();
+    register_command<DecreaseFreetextBorderWidthCommand>();
     register_command<GotoPortalListCommand>();
     register_command<ShowMarks>();
     register_command<GotoBookmarkCommand>();
@@ -7812,6 +7842,7 @@ InputParseTreeNode parse_token(std::wstring token) {
                 {L"left", Qt::Key::Key_Left},
                 {L"right", Qt::Key::Key_Right},
                 {L"backspace", Qt::Key::Key_Backspace},
+                {L"delete", Qt::Key::Key_Delete},
                 {L"space", Qt::Key::Key_Space},
                 {L"pageup", Qt::Key::Key_PageUp},
                 {L"pagedown", Qt::Key::Key_PageDown},
@@ -8360,6 +8391,7 @@ std::string InputHandler::get_key_name_from_key_code(int key_code) const {
         {Qt::Key::Key_Left, "left"},
         {Qt::Key::Key_Right, "right"},
         {Qt::Key::Key_Backspace, "backspace"},
+        {Qt::Key::Key_Delete, "delete"},
         {Qt::Key::Key_Space, "space"},
         {Qt::Key::Key_PageUp, "pageup"},
         {Qt::Key::Key_PageDown, "pagedown"},

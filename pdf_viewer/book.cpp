@@ -160,6 +160,7 @@ QJsonObject BookMark::to_json(std::string doc_checksum) const
         res["color_green"] = color[1];
         res["color_blue"] = color[2];
         res["font_size"] = font_size;
+        res["border_width"] = border_width;
         res["font_face"] = QString::fromStdWString(font_face);
         if (arrow) res["note_arrow"] = arrow->to_json();
     }
@@ -181,6 +182,7 @@ void BookMark::add_to_tuples(std::vector<std::pair<std::string, QVariant>>& tupl
     tuples.push_back({ "color_green", color[1] });
     tuples.push_back({ "color_blue", color[2] });
     tuples.push_back({ "font_size", font_size });
+    tuples.push_back({ "border_width", border_width });
     tuples.push_back({ "font_face", QString::fromStdWString(font_face) });
     tuples.push_back({ "arrow_json", note_arrow_to_db_string(arrow) });
 }
@@ -199,6 +201,7 @@ void BookMark::from_json(const QJsonObject& json_object)
         color[1] = json_object["color_green"].toDouble();
         color[2] = json_object["color_blue"].toDouble();
         font_size = json_object["font_size"].toDouble();
+        border_width = json_object["border_width"].toDouble(2.0);
         font_face = json_object["font_face"].toString().toStdWString();
     }
     arrow = NoteArrow::from_json(json_object["note_arrow"]);

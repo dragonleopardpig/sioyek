@@ -984,7 +984,13 @@ void PdfViewOpenGLWidget::render_note_text(
             add_plain_text(delimiter + segment.text + delimiter);
             continue;
         }
-        math->setFontSizePixels(math_font_size);
+        QFont math_font(math->getFontMathRoman());
+        math_font.setPixelSize(std::max(1, qRound(math_font_size)));
+        const QFontMetricsF math_metrics(math_font, painter->device());
+        const double math_scale = math_metrics.xHeight() > 0.0
+            ? std::clamp(metrics.xHeight() / math_metrics.xHeight(), 0.5, 1.5)
+            : 1.0;
+        math->setFontSizePixels(math_font_size * math_scale);
         math->setFontColor(painter->pen().color());
         const JKQTMathTextNodeSize size = math->getSizeDetail(*painter);
         NoteLayoutItem item {
@@ -2040,8 +2046,13 @@ void PdfViewOpenGLWidget::my_render(QPainter* painter) {
 
                     std::array<float, 3> bookmark_color = cc3(bookmarks[i].color);
                     painter->setPen(convert_float3_to_qcolor(&bookmark_color[0]));
-                    if (RENDER_FREETEXT_BORDERS || bookmarks[i].description.empty()) {
+                    if (!bookmarks[i].is_box() && (RENDER_FREETEXT_BORDERS || bookmarks[i].description.empty())) {
+                        painter->save();
+                        painter->setRenderHint(QPainter::Antialiasing, true);
+                        painter->setPen(QPen(convert_float3_to_qcolor(&bookmark_color[0]),
+                            std::max(0.5f, bookmarks[i].border_width * document_view->get_zoom_level())));
                         painter->drawRect(window_rect.x0, window_rect.y0, fz_irect_width(window_rect), fz_irect_height(window_rect));
+                        painter->restore();
                     }
 
                     int flags = Qt::TextWordWrap;

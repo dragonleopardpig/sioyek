@@ -4060,6 +4060,15 @@ void Document::update_bookmark_color(int index, const float color[3]) {
     }
 }
 
+void Document::update_bookmark_border_width(int index, float border_width) {
+    if (index >= 0 && index < bookmarks.size() &&
+        db_manager->update_bookmark_border_width(bookmarks[index].uuid, border_width)) {
+        bookmarks[index].border_width = border_width;
+        bookmarks[index].update_modification_time();
+        is_annotations_dirty = true;
+    }
+}
+
 void Document::update_bookmark_arrow(int index, const std::optional<NoteArrow>& arrow) {
     if (index < 0 || index >= bookmarks.size()) return;
     if (db_manager->update_bookmark_arrow(bookmarks[index].uuid, arrow)) {

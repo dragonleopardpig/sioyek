@@ -472,6 +472,8 @@ public:
     void handle_click(WindowPos pos);
 
     void update_selected_bookmark_font_size(float factor);
+    void update_selected_bookmark_border_width(float factor);
+    bool has_selected_freetext_note();
     bool eventFilter(QObject* obj, QEvent* event) override;
     void show_freetext_editor();
     void update_freetext_editor_geometry();

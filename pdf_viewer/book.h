@@ -117,6 +117,7 @@ struct BookMark : Annotation {
 
     float color[3] = { 0 };
     float font_size = -1;
+    float border_width = 2.0f;
     std::wstring font_face;
     std::optional<NoteArrow> arrow;
 
