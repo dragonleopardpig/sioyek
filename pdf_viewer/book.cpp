@@ -391,8 +391,10 @@ AbsoluteDocumentPos BookMark::end_pos() {
 
 AbsoluteRect BookMark::rect() {
     // Older builds stored reverse drags with flipped ends, the same reason
-    // get_rectangle() normalizes. The one consumer of this is PDF annotation
-    // embedding, which writes an inverted rect that other viewers collapse.
+    // get_rectangle() normalizes; this keeps the two in agreement. Note that the
+    // current consumer, PDF annotation embedding, does not depend on it: mupdf's
+    // pdf_set_annot_rect runs the rect through fz_transform_rect, which swaps
+    // inverted edges itself. This is so callers need not rely on that.
     AbsoluteDocumentPos begin = begin_pos();
     AbsoluteDocumentPos end = end_pos();
 
