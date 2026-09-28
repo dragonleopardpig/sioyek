@@ -55,6 +55,7 @@ extern Path standard_data_path;
 extern bool VERBOSE;
 extern float FREETEXT_BOOKMARK_COLOR[3];
 extern float FREETEXT_BOOKMARK_FONT_SIZE;
+extern float FREETEXT_BOOKMARK_BORDER_WIDTH;
 extern std::wstring FREETEXT_BOOKMARK_FONT_FACE;
 extern std::wstring SHARED_DATABASE_PATH;
 extern bool DEBUG;
@@ -264,6 +265,7 @@ void Document::add_freetext_bookmark_with_color(const std::wstring& desc, Absolu
     bookmark.color[2] = color[2];
     bookmark.font_size = font_size < 0 ? FREETEXT_BOOKMARK_FONT_SIZE : font_size;
     bookmark.font_face = FREETEXT_BOOKMARK_FONT_FACE;
+    bookmark.border_width = FREETEXT_BOOKMARK_BORDER_WIDTH;
     bookmark.uuid = new_uuid_utf8();
     bookmark.update_creation_time();
 

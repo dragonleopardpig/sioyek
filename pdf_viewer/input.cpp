@@ -51,6 +51,7 @@ extern bool TOUCH_MODE;
 extern bool VERBOSE;
 extern float FREETEXT_BOOKMARK_COLOR[3];
 extern float FREETEXT_BOOKMARK_FONT_SIZE;
+extern float FREETEXT_BOOKMARK_BORDER_WIDTH;
 extern std::wstring FREETEXT_BOOKMARK_FONT_FACE;
 extern bool FUZZY_SEARCHING;
 extern bool TOC_JUMP_ALIGN_TOP;
@@ -2413,6 +2414,7 @@ public:
 
         incomplete_bookmark.font_size = FREETEXT_BOOKMARK_FONT_SIZE;
         incomplete_bookmark.font_face = FREETEXT_BOOKMARK_FONT_FACE;
+        incomplete_bookmark.border_width = FREETEXT_BOOKMARK_BORDER_WIDTH;
 
         incomplete_bookmark.color[0] = FREETEXT_BOOKMARK_COLOR[0];
         incomplete_bookmark.color[1] = FREETEXT_BOOKMARK_COLOR[1];

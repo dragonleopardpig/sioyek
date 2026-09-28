@@ -296,7 +296,9 @@ float DEFAULT_LINK_HIGHLIGHT_COLOR[3] = { 0.0f, 0.0f, 1.0f };
 float DEFAULT_SYNCTEX_HIGHLIGHT_COLOR[3] = { 1.0f, 0.0f, 0.0f };
 float HIDE_SYNCTEX_HIGHLIGHT_TIMEOUT = 1.0f;
 
-float FREETEXT_BOOKMARK_COLOR[3] = { 0.0f, 0.0f, 0.0f };
+float FREETEXT_BOOKMARK_COLOR[3] = { 1.0f, 0.0f, 0.0f };
+// 2.0 reduced by three 1.25x steps, the same step the border width commands use.
+float FREETEXT_BOOKMARK_BORDER_WIDTH = 1.024f;
 float FREETEXT_BOOKMARK_FONT_SIZE = 8.0f;
 std::wstring FREETEXT_BOOKMARK_FONT_FACE;
 std::wstring TEXT_EDITOR_COMMAND;
@@ -930,6 +932,7 @@ ConfigManager::ConfigManager(const Path& default_path, const Path& auto_path, co
     add_float(L"link_destination_highlight_timeout", &HIDE_SYNCTEX_HIGHLIGHT_TIMEOUT, FloatExtras{-1.0f, 100.0f});
     add_float(L"dark_mode_contrast", &DARK_MODE_CONTRAST, FloatExtras{0.0f, 1.0f});
     add_float(L"freetext_bookmark_font_size", &FREETEXT_BOOKMARK_FONT_SIZE, FloatExtras{0.0f, 100.0f});
+    add_float(L"freetext_bookmark_border_width", &FREETEXT_BOOKMARK_BORDER_WIDTH, FloatExtras{0.5f, 32.0f});
     add_float(L"custom_color_contrast", &CUSTOM_COLOR_CONTRAST, FloatExtras{0.0f, 1.0f});
     add_float(L"zoom_inc_factor", &ZOOM_INC_FACTOR, FloatExtras{1.0f, 2.0f});
     add_float(L"scroll_zoom_inc_factor", &SCROLL_ZOOM_INC_FACTOR, FloatExtras{1.0f, 2.0f});
