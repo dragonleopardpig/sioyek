@@ -101,6 +101,9 @@ struct NoteArrow {
 
 QString note_arrow_to_db_string(const std::optional<NoteArrow>& arrow);
 std::optional<NoteArrow> note_arrow_from_db_string(const QString& value);
+// The corners and edge midpoints drawn as a selected note's resize handles.
+constexpr int NUM_NOTE_BOX_HANDLES = 8;
+void note_box_handles(const BookMark& bookmark, AbsoluteDocumentPos out_handles[NUM_NOTE_BOX_HANDLES]);
 AbsoluteDocumentPos note_arrow_anchor(const BookMark& bookmark, AbsoluteDocumentPos toward);
 
 /*

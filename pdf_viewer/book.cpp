@@ -37,17 +37,60 @@ std::optional<NoteArrow> note_arrow_from_db_string(const QString& value) {
     return NoteArrow::from_json(QJsonDocument::fromJson(value.toUtf8()).object());
 }
 
+void note_box_handles(const BookMark& bookmark, AbsoluteDocumentPos out_handles[NUM_NOTE_BOX_HANDLES]) {
+    AbsoluteRect rect = bookmark.get_rectangle();
+    float cx = (rect.x0 + rect.x1) * 0.5f;
+    float cy = (rect.y0 + rect.y1) * 0.5f;
+
+    // The same eight points that are drawn as selection handles: the four
+    // corners and the four edge midpoints, i.e. the 3x3 grid without its center.
+    out_handles[0] = { rect.x1, cy };
+    out_handles[1] = { rect.x1, rect.y1 };
+    out_handles[2] = { cx, rect.y1 };
+    out_handles[3] = { rect.x0, rect.y1 };
+    out_handles[4] = { rect.x0, cy };
+    out_handles[5] = { rect.x0, rect.y0 };
+    out_handles[6] = { cx, rect.y0 };
+    out_handles[7] = { rect.x1, rect.y0 };
+}
+
 AbsoluteDocumentPos note_arrow_anchor(const BookMark& bookmark, AbsoluteDocumentPos toward) {
     AbsoluteRect rect = bookmark.get_rectangle();
     float cx = (rect.x0 + rect.x1) * 0.5f;
     float cy = (rect.y0 + rect.y1) * 0.5f;
+
+    AbsoluteDocumentPos handles[NUM_NOTE_BOX_HANDLES];
+    note_box_handles(bookmark, handles);
+
     float dx = toward.x - cx;
     float dy = toward.y - cy;
-    float half_width = std::max((rect.x1 - rect.x0) * 0.5f, 1.0f);
-    float half_height = std::max((rect.y1 - rect.y0) * 0.5f, 1.0f);
-    float scale = std::max(std::abs(dx) / half_width, std::abs(dy) / half_height);
-    if (scale < 0.001f) return {rect.x1, cy};
-    return {cx + dx / scale, cy + dy / scale};
+    float length = std::hypot(dx, dy);
+    if (length < 0.001f) return handles[0];
+
+    dx /= length;
+    dy /= length;
+
+    // Snap the tail to whichever handle lies closest to the direction the arrow
+    // was pointed, rather than to an arbitrary point along the border. Comparing
+    // directions rather than distances keeps the choice sensible on a wide box,
+    // where every corner is nearly the same distance from the center.
+    int best = 0;
+    float best_alignment = -2.0f;
+
+    for (int i = 0; i < NUM_NOTE_BOX_HANDLES; i++) {
+        float hx = handles[i].x - cx;
+        float hy = handles[i].y - cy;
+        float handle_length = std::hypot(hx, hy);
+        if (handle_length < 0.001f) continue;
+
+        float alignment = (dx * hx + dy * hy) / handle_length;
+        if (alignment > best_alignment) {
+            best_alignment = alignment;
+            best = i;
+        }
+    }
+
+    return handles[best];
 }
 
 bool operator==(const DocumentViewState& lhs, const DocumentViewState& rhs)
