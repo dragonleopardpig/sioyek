@@ -778,6 +778,10 @@ void MainWidget::mouseMoveEvent(QMouseEvent* mouse_event) {
         }
         int edges = freetext_resize_edges_at(mpos);
         int index = doc()->get_bookmark_index_at_pos(abs_mpos);
+        // Matches mousePressEvent: a point inside another note is not a resize.
+        if (edges && index >= 0 && index != selected_bookmark_index) {
+            edges = 0;
+        }
         if (edges) {
             if ((edges & 3) && (edges & 12)) setCursor((edges == 5 || edges == 10) ? Qt::SizeFDiagCursor : Qt::SizeBDiagCursor);
             else setCursor((edges & 3) ? Qt::SizeHorCursor : Qt::SizeVerCursor);
@@ -1707,15 +1711,18 @@ void MainWidget::handle_escape() {
         }
     }
 
-    if (bookmark_move_data && doc()) {
+    if (bookmark_move_data && doc() && bookmark_move_data->index >= 0 &&
+        bookmark_move_data->index < doc()->get_bookmarks().size()) {
         BookMark& bookmark = doc()->get_bookmarks()[bookmark_move_data->index];
         bookmark.begin_x = bookmark_move_data->initial_begin_position.x;
         bookmark.begin_y = bookmark_move_data->initial_begin_position.y;
         bookmark.end_x = bookmark_move_data->initial_end_position.x;
         bookmark.end_y = bookmark_move_data->initial_end_position.y;
         bookmark.arrow = bookmark_move_data->initial_arrow;
-        bookmark_move_data = {};
     }
+    bookmark_move_data = {};
+
+    restore_freetext_edit_appearance();
     smooth_y_move_amount = {};
     hide_command_hints();
     clear_selection_indicators();
@@ -3426,8 +3433,15 @@ void MainWidget::mousePressEvent(QMouseEvent* mevent) {
         mevent->button() == Qt::LeftButton && mevent->modifiers() == Qt::NoModifier) {
         WindowPos pos(mevent->pos());
         if (!opengl_widget->is_window_point_in_overview(pos.to_window_normalized(main_document_view))) {
+            int index_under_cursor = doc()->get_bookmark_index_at_pos(pos.to_absolute(main_document_view));
             int edges = freetext_resize_edges_at(pos);
-            int index = edges ? selected_bookmark_index : doc()->get_bookmark_index_at_pos(pos.to_absolute(main_document_view));
+            // The resize margin reaches outside the selected note, so a click that
+            // lands inside a different note must select that note rather than
+            // resize this one -- otherwise an abutting note is unselectable.
+            if (edges && index_under_cursor >= 0 && index_under_cursor != selected_bookmark_index) {
+                edges = 0;
+            }
+            int index = edges ? selected_bookmark_index : index_under_cursor;
             if (index >= 0 && doc()->get_bookmarks()[index].is_freetext() && !doc()->get_bookmarks()[index].is_box()) {
                 set_selected_highlight_index(-1);
                 set_selected_bookmark_index(index);
@@ -8640,13 +8654,16 @@ void MainWidget::select_rectangle_at(AbsoluteDocumentPos point) {
     const auto& drawings = doc()->get_page_drawings(doc()->absolute_to_page_pos_uncentered(point).page);
 
     for (auto it = drawings.rbegin(); it != drawings.rend(); ++it) {
-        if (it->is_rectangle() && it->bbox().contains(point)) {
-            // Match delete_rectangle_at's choice when rectangles overlap.
-            if (it->type >= 'a' && it->type <= 'z' && opengl_widget->visible_drawing_mask[it->type - 'a']) {
-                selected_rectangle_point = point;
-            }
-            return;
+        if (!it->is_rectangle() || !it->bbox().contains(point)) {
+            continue;
         }
+        // Skip hidden rectangles rather than stop at them, so that this picks
+        // exactly the rectangle delete_rectangle_at would remove.
+        if (it->type < 'a' || it->type > 'z' || !opengl_widget->visible_drawing_mask[it->type - 'a']) {
+            continue;
+        }
+        selected_rectangle_point = point;
+        return;
     }
 }
 
@@ -8654,10 +8671,10 @@ void MainWidget::delete_rectangle(AbsoluteDocumentPos point) {
     selected_rectangle_point = {};
     bool deleted;
     if (opengl_widget->get_scratchpad()) {
-        deleted = scratchpad->delete_rectangle_at(point);
+        deleted = scratchpad->delete_rectangle_at(point, opengl_widget->visible_drawing_mask);
     }
     else {
-        deleted = doc()->delete_rectangle_at(point);
+        deleted = doc()->delete_rectangle_at(point, opengl_widget->visible_drawing_mask);
     }
 
     if (!deleted) {
@@ -9049,11 +9066,9 @@ void MainWidget::change_selected_bookmark_color(char type) {
 
     const float* palette_color = get_highlight_type_color(type);
     float color[3] = {palette_color[0], palette_color[1], palette_color[2]};
-    if (pending_command_instance && pending_command_instance->get_name() == "add_freetext_bookmark") {
-        // New notes are written to the database only when the text is saved.
-        for (int component = 0; component < 3; ++component) bookmark.color[component] = color[component];
-    }
-    else {
+    for (int component = 0; component < 3; ++component) bookmark.color[component] = color[component];
+    // Same rule as the font size: held in memory while the editor is open.
+    if (!freetext_edit_appearance) {
         doc()->update_bookmark_color(selected_bookmark_index, color);
     }
     if (freetext_editor->isVisible()) {
@@ -9080,12 +9095,8 @@ void MainWidget::begin_note_arrow() {
     if (!doc() || selected_bookmark_index < 0 || selected_bookmark_index >= doc()->get_bookmarks().size()) return;
     const BookMark& bookmark = doc()->get_bookmarks()[selected_bookmark_index];
     if (!bookmark.is_freetext() || bookmark.is_box()) return;
-    std::string uuid = bookmark.uuid;
-    finish_freetext_edit();
-    int index = doc()->get_bookmark_index_with_uuid(uuid);
-    if (index < 0) return;
-    set_selected_bookmark_index(index);
-    placing_note_arrow_index = index;
+    if (freetext_editor && freetext_editor->isVisible() && !finish_freetext_edit_keeping_selection()) return;
+    placing_note_arrow_index = selected_bookmark_index;
     setCursor(Qt::CrossCursor);
 }
 
@@ -9193,8 +9204,9 @@ void MainWidget::update_selected_bookmark_font_size(float factor) {
         if (!bookmark.is_freetext()) return;
         float size = bookmark.font_size > 0 ? bookmark.font_size : FREETEXT_BOOKMARK_FONT_SIZE;
         bookmark.font_size = std::clamp(size * factor, 1.0f, 100.0f);
-        // Pending edits are saved on Enter and restored on Escape.
-        if (!pending_command_instance) {
+        // While the editor is open the change is held in memory, so that Enter
+        // persists it and Escape restores it. Otherwise it is committed now.
+        if (!freetext_edit_appearance) {
             doc()->update_bookmark_text(selected_bookmark_index, bookmark.description, bookmark.font_size);
         }
         update_freetext_editor_geometry();
@@ -9216,10 +9228,9 @@ void MainWidget::update_selected_bookmark_border_width(float factor) {
     if (!has_selected_freetext_note()) return;
     BookMark& bookmark = doc()->get_bookmarks()[selected_bookmark_index];
     float width = std::clamp(bookmark.border_width * factor, 0.5f, 32.0f);
-    if (pending_command_instance && pending_command_instance->get_name() == "add_freetext_bookmark") {
-        bookmark.border_width = width;
-    }
-    else {
+    bookmark.border_width = width;
+    // Same rule as the font size: held in memory while the editor is open.
+    if (!freetext_edit_appearance) {
         doc()->update_bookmark_border_width(selected_bookmark_index, width);
     }
     invalidate_render();
@@ -9238,8 +9249,12 @@ bool MainWidget::eventFilter(QObject* obj, QEvent* event) {
         }
         if (key->modifiers() & (Qt::ControlModifier | Qt::MetaModifier)) {
             if ((key->modifiers() & Qt::ShiftModifier) && key->key() == Qt::Key_C) {
-                finish_freetext_edit();
-                run_command_with_name("change_selected_bookmark_color");
+                // The color letter is read by the main widget's key handling, so
+                // the editor has to close first -- but the note must stay
+                // selected or the command has nothing to act on.
+                if (finish_freetext_edit_keeping_selection()) {
+                    run_command_with_name("change_selected_bookmark_color");
+                }
                 return true;
             }
             if ((key->modifiers() & Qt::ShiftModifier) && key->key() == Qt::Key_A) {
@@ -9259,6 +9274,7 @@ void MainWidget::show_freetext_editor() {
     if (TOUCH_MODE || !doc() || selected_bookmark_index < 0 || selected_bookmark_index >= doc()->get_bookmarks().size()) return;
     const BookMark& bookmark = doc()->get_bookmarks()[selected_bookmark_index];
     if (!bookmark.is_freetext() || bookmark.is_box()) return;
+    capture_freetext_edit_appearance();
     text_command_line_edit_container->hide();
     freetext_editor->setPlainText(text_command_line_edit->text());
     freetext_editor->show();
@@ -9291,7 +9307,87 @@ void MainWidget::finish_freetext_edit() {
     freetext_editor->hide();
     setFocus();
     handle_pending_text_command(text);
+    commit_freetext_edit_appearance();
     invalidate_render();
+}
+
+bool MainWidget::finish_freetext_edit_keeping_selection() {
+    // Saving a new note clears the selection, so commands that act on the
+    // selected note have to re-resolve it by uuid afterwards.
+    std::string uuid;
+    if (doc() && selected_bookmark_index >= 0 && selected_bookmark_index < doc()->get_bookmarks().size()) {
+        uuid = doc()->get_bookmarks()[selected_bookmark_index].uuid;
+    }
+
+    finish_freetext_edit();
+
+    if (!doc() || uuid.size() == 0) return false;
+
+    int index = doc()->get_bookmark_index_with_uuid(uuid);
+    if (index < 0) return false;
+
+    set_selected_bookmark_index(index);
+    return true;
+}
+
+void MainWidget::capture_freetext_edit_appearance() {
+    freetext_edit_appearance = {};
+    if (!doc() || selected_bookmark_index < 0 || selected_bookmark_index >= doc()->get_bookmarks().size()) return;
+
+    const BookMark& bookmark = doc()->get_bookmarks()[selected_bookmark_index];
+
+    FreetextEditAppearance appearance;
+    appearance.uuid = bookmark.uuid;
+    appearance.font_size = bookmark.font_size;
+    appearance.border_width = bookmark.border_width;
+    for (int component = 0; component < 3; ++component) appearance.color[component] = bookmark.color[component];
+    appearance.is_new_note = pending_command_instance && pending_command_instance->get_name() == "add_freetext_bookmark";
+
+    freetext_edit_appearance = appearance;
+}
+
+void MainWidget::restore_freetext_edit_appearance() {
+    if (!freetext_edit_appearance) return;
+
+    FreetextEditAppearance appearance = freetext_edit_appearance.value();
+    freetext_edit_appearance = {};
+
+    // A cancelled new note is removed entirely, so there is nothing to restore.
+    if (!doc() || appearance.is_new_note) return;
+
+    int index = doc()->get_bookmark_index_with_uuid(appearance.uuid);
+    if (index < 0) return;
+
+    BookMark& bookmark = doc()->get_bookmarks()[index];
+    bookmark.font_size = appearance.font_size;
+    bookmark.border_width = appearance.border_width;
+    for (int component = 0; component < 3; ++component) bookmark.color[component] = appearance.color[component];
+}
+
+void MainWidget::commit_freetext_edit_appearance() {
+    if (!freetext_edit_appearance) return;
+
+    FreetextEditAppearance appearance = freetext_edit_appearance.value();
+    freetext_edit_appearance = {};
+
+    // A new note is inserted carrying its in-memory appearance, so only an edit
+    // of an existing note needs the border width and color written back.
+    if (!doc() || appearance.is_new_note) return;
+
+    int index = doc()->get_bookmark_index_with_uuid(appearance.uuid);
+    if (index < 0) return;
+
+    const BookMark& bookmark = doc()->get_bookmarks()[index];
+
+    if (bookmark.border_width != appearance.border_width) {
+        doc()->update_bookmark_border_width(index, bookmark.border_width);
+    }
+    if (bookmark.color[0] != appearance.color[0] ||
+        bookmark.color[1] != appearance.color[1] ||
+        bookmark.color[2] != appearance.color[2]) {
+        float color[3] = { bookmark.color[0], bookmark.color[1], bookmark.color[2] };
+        doc()->update_bookmark_color(index, color);
+    }
 }
 
 int MainWidget::freetext_resize_edges_at(WindowPos pos) {

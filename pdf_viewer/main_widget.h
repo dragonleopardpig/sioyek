@@ -105,6 +105,17 @@ struct BookmarkMoveData {
     std::optional<NoteArrow> initial_arrow;
 };
 
+// Appearance of a note as its editor opened, so that Enter can persist what the
+// editor changed and Escape can put it back. Keyed by uuid because cancelling a
+// newly created note erases it from the bookmark vector.
+struct FreetextEditAppearance {
+    std::string uuid;
+    float font_size = -1;
+    float border_width = 2.0f;
+    float color[3] = { 0 };
+    bool is_new_note = false;
+};
+
 enum class NoteArrowDragPart { Tip, Control1, Control2, PlacingTip };
 
 struct NoteArrowDragData {
@@ -273,6 +284,8 @@ public:
     std::optional<BookmarkMoveData> bookmark_move_data = {};
     int placing_note_arrow_index = -1;
     std::optional<NoteArrowDragData> note_arrow_drag;
+    // Set exactly while the note editor is open.
+    std::optional<FreetextEditAppearance> freetext_edit_appearance = {};
     std::optional<PortalMoveData> portal_move_data = {};
 
     // when set, mouse wheel moves the ruler
@@ -482,6 +495,10 @@ public:
     void show_freetext_editor();
     void update_freetext_editor_geometry();
     void finish_freetext_edit();
+    bool finish_freetext_edit_keeping_selection();
+    void capture_freetext_edit_appearance();
+    void restore_freetext_edit_appearance();
+    void commit_freetext_edit_appearance();
     int freetext_resize_edges_at(WindowPos pos);
     //bool eventFilter(QObject* obj, QEvent* event) override;
     void set_command_textbox_text(const std::wstring& txt);

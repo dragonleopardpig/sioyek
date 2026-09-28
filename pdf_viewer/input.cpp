@@ -2691,7 +2691,10 @@ public:
             const BookMark& bookmark = widget->doc()->get_bookmarks()[widget->selected_bookmark_index];
             has_selected_note = bookmark.is_freetext() && !bookmark.is_box();
         }
-        if (has_selected_note || symbol_control_pressed) {
+        // Only divert to the note color when a note is really selected. Diverting
+        // on the control modifier alone silently discarded the highlight,
+        // because change_selected_bookmark_color is a no-op without a selection.
+        if (has_selected_note) {
             widget->change_selected_bookmark_color(symbol);
             return;
         }

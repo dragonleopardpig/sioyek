@@ -1852,13 +1852,21 @@ void ScratchPad::delete_intersecting_objects(AbsoluteRect selection) {
     delete_intersecting_pixmaps(selection);
 }
 
-bool ScratchPad::delete_rectangle_at(AbsoluteDocumentPos point) {
+bool ScratchPad::delete_rectangle_at(AbsoluteDocumentPos point, const bool* visible_mask) {
     for (int i = static_cast<int>(all_drawings.size()) - 1; i >= 0; i--) {
-        if (all_drawings[i].is_rectangle() && all_drawings[i].bbox().contains(point)) {
-            all_drawings.erase(all_drawings.begin() + i);
-            invalidate_compile(true);
-            return true;
+        if (!all_drawings[i].is_rectangle() || !all_drawings[i].bbox().contains(point)) {
+            continue;
         }
+        // Never delete something the user cannot currently see.
+        if (visible_mask) {
+            char type = all_drawings[i].type;
+            if (type < 'a' || type > 'z' || !visible_mask[type - 'a']) {
+                continue;
+            }
+        }
+        all_drawings.erase(all_drawings.begin() + i);
+        invalidate_compile(true);
+        return true;
     }
     return false;
 }

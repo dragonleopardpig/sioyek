@@ -2575,7 +2575,16 @@ void Document::embed_annotations(std::wstring new_file_path) {
         pdf_page* pdf_page = pdf_page_from_fz_page(context, page);
         pdf_annot* bookmark_annot;
         if (bookmark.is_freetext() && (!bookmark.is_box())) {
-            bookmark_annot = pdf_create_annot(context, pdf_page, PDF_ANNOT_FREE_TEXT);
+            if (bookmark.description.empty()) {
+                // An empty note is drawn as a rectangle, and a FreeText annotation
+                // with no contents has no visible geometry in other viewers, so
+                // export it as the square it actually is.
+                bookmark_annot = pdf_create_annot(context, pdf_page, PDF_ANNOT_SQUARE);
+                pdf_set_annot_color(context, bookmark_annot, 3, bookmark.color);
+            }
+            else {
+                bookmark_annot = pdf_create_annot(context, pdf_page, PDF_ANNOT_FREE_TEXT);
+            }
         }
         else if (bookmark.is_box()) {
             bookmark_annot = pdf_create_annot(context, pdf_page, PDF_ANNOT_SQUARE);
@@ -2599,9 +2608,12 @@ void Document::embed_annotations(std::wstring new_file_path) {
         if (bookmark.is_freetext()) {
             annot_rect = bookmark.rect().to_document(this).rect;
 
-            std::string encoded_font_face = utf8_encode(bookmark.font_face);
-            const char* font_face = bookmark.font_face.size() == 0 ? "Times New Roman" : encoded_font_face.c_str();
-            pdf_set_annot_default_appearance(context, bookmark_annot, font_face, bookmark.font_size, 3, bookmark.color);
+            if (!bookmark.description.empty()) {
+                std::string encoded_font_face = utf8_encode(bookmark.font_face);
+                const char* font_face = bookmark.font_face.size() == 0 ? "Times New Roman" : encoded_font_face.c_str();
+                pdf_set_annot_default_appearance(context, bookmark_annot, font_face, bookmark.font_size, 3, bookmark.color);
+            }
+            pdf_set_annot_border(context, bookmark_annot, bookmark.border_width);
         }
         else if (bookmark.is_marked()) {
             //DocumentPos begin_page_pos = absolute_to_page_pos_uncentered({ bookmark.begin_x, bookmark.begin_y });
@@ -2624,6 +2636,79 @@ void Document::embed_annotations(std::wstring new_file_path) {
         pdf_update_annot(context, bookmark_annot);
 
         created_annotations.push_back(std::make_pair(pdf_page, bookmark_annot));
+
+        // PDF has no curved-arrow annotation, so the cubic is flattened into an
+        // ink annotation. Without this the arrow is simply lost on export.
+        if (bookmark.arrow) {
+            const NoteArrow& arrow = bookmark.arrow.value();
+            AbsoluteDocumentPos start = note_arrow_anchor(bookmark, arrow.control1);
+
+            std::vector<fz_point> arrow_points;
+            std::vector<int> stroke_counts;
+
+            auto append_absolute_point = [&](AbsoluteDocumentPos abspos) {
+                DocumentPos docpos = absolute_to_page_pos_uncentered(abspos);
+                if (docpos.page != page_number) {
+                    return false;
+                }
+                arrow_points.push_back(fz_point{ docpos.x, docpos.y });
+                return true;
+            };
+
+            const int num_segments = 32;
+            int curve_point_count = 0;
+            for (int i = 0; i <= num_segments; i++) {
+                float t = static_cast<float>(i) / num_segments;
+                float u = 1.0f - t;
+                AbsoluteDocumentPos curve_point{
+                    u * u * u * start.x + 3 * u * u * t * arrow.control1.x + 3 * u * t * t * arrow.control2.x + t * t * t * arrow.tip.x,
+                    u * u * u * start.y + 3 * u * u * t * arrow.control1.y + 3 * u * t * t * arrow.control2.y + t * t * t * arrow.tip.y,
+                };
+                if (append_absolute_point(curve_point)) {
+                    curve_point_count++;
+                }
+            }
+
+            if (curve_point_count > 1) {
+                stroke_counts.push_back(curve_point_count);
+
+                float dx = arrow.tip.x - arrow.control2.x;
+                float dy = arrow.tip.y - arrow.control2.y;
+                if (std::hypot(dx, dy) < 0.001f) {
+                    dx = arrow.tip.x - start.x;
+                    dy = arrow.tip.y - start.y;
+                }
+                float length = std::hypot(dx, dy);
+
+                if (length >= 0.001f) {
+                    float dir_x = dx / length;
+                    float dir_y = dy / length;
+                    AbsoluteDocumentPos base{ arrow.tip.x - dir_x * 12.0f, arrow.tip.y - dir_y * 12.0f };
+
+                    for (float side : { 1.0f, -1.0f }) {
+                        size_t before = arrow_points.size();
+                        bool complete = append_absolute_point(arrow.tip);
+                        complete = append_absolute_point(AbsoluteDocumentPos{
+                            base.x - dir_y * 5.0f * side, base.y + dir_x * 5.0f * side }) && complete;
+                        if (complete) {
+                            stroke_counts.push_back(2);
+                        }
+                        else {
+                            arrow_points.resize(before);
+                        }
+                    }
+                }
+
+                pdf_annot* arrow_annot = pdf_create_annot(context, pdf_page, PDF_ANNOT_INK);
+                pdf_set_annot_ink_list(context, arrow_annot, static_cast<int>(stroke_counts.size()),
+                    &stroke_counts[0], &arrow_points[0]);
+                pdf_set_annot_border(context, arrow_annot, bookmark.border_width);
+                pdf_set_annot_color(context, arrow_annot, 3, bookmark.color);
+                pdf_update_annot(context, arrow_annot);
+
+                created_annotations.push_back(std::make_pair(pdf_page, arrow_annot));
+            }
+        }
     }
 
     for (auto [page_number, drawings] : page_freehand_drawings) {
@@ -3553,17 +3638,25 @@ void Document::add_freehand_drawing(FreehandDrawing new_drawing) {
     }
 }
 
-bool Document::delete_rectangle_at(AbsoluteDocumentPos point) {
+bool Document::delete_rectangle_at(AbsoluteDocumentPos point, const bool* visible_mask) {
     int page = absolute_to_page_pos_uncentered(point).page;
     std::lock_guard guard(drawings_mutex);
     std::vector<FreehandDrawing>& drawings = page_freehand_drawings[page];
 
     for (int i = static_cast<int>(drawings.size()) - 1; i >= 0; i--) {
-        if (drawings[i].is_rectangle() && drawings[i].bbox().contains(point)) {
-            drawings.erase(drawings.begin() + i);
-            is_drawings_dirty = true;
-            return true;
+        if (!drawings[i].is_rectangle() || !drawings[i].bbox().contains(point)) {
+            continue;
         }
+        // Never delete something the user cannot currently see.
+        if (visible_mask) {
+            char type = drawings[i].type;
+            if (type < 'a' || type > 'z' || !visible_mask[type - 'a']) {
+                continue;
+            }
+        }
+        drawings.erase(drawings.begin() + i);
+        is_drawings_dirty = true;
+        return true;
     }
     return false;
 }

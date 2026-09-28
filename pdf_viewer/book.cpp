@@ -390,7 +390,16 @@ AbsoluteDocumentPos BookMark::end_pos() {
 }
 
 AbsoluteRect BookMark::rect() {
-    return AbsoluteRect(begin_pos(), end_pos());
+    // Older builds stored reverse drags with flipped ends, the same reason
+    // get_rectangle() normalizes. The one consumer of this is PDF annotation
+    // embedding, which writes an inverted rect that other viewers collapse.
+    AbsoluteDocumentPos begin = begin_pos();
+    AbsoluteDocumentPos end = end_pos();
+
+    return AbsoluteRect(
+        AbsoluteDocumentPos{ std::min(begin.x, end.x), std::min(begin.y, end.y) },
+        AbsoluteDocumentPos{ std::max(begin.x, end.x), std::max(begin.y, end.y) }
+    );
 }
 
 AbsoluteRect FreehandDrawing::bbox() const {
