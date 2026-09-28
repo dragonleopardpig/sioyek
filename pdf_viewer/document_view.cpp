@@ -401,17 +401,36 @@ NormalizedWindowPos DocumentView::absolute_to_window_pos(AbsoluteDocumentPos abs
 
 NormalizedWindowRect DocumentView::absolute_to_window_rect(AbsoluteRect doc_rect) {
     // An absolute rectangle may have endpoints on different pages in two-page
-    // mode.  Converting both endpoints independently can then select the
-    // wrong virtual page (the pages share a virtual y range but are separated
-    // horizontally).  Keep the top-left anchor and apply the rectangle's
-    // absolute dimensions so the selection follows the drag direction.
-    float abs_width = doc_rect.width();
-    float abs_height = doc_rect.height();
+    // mode.  Converting both endpoints independently then places the bottom
+    // right corner on the wrong virtual page (the pages share a virtual y
+    // range but are separated horizontally), so in that case both corners are
+    // anchored to the top left corner's page instead.  Note that the extent
+    // must not be derived from the raw absolute size: document_to_virtual_pos
+    // scales page local coordinates when `uniform_page_widths` is set, and
+    // virtual y additionally includes the inter-page gaps that absolute y
+    // does not.  Both corners therefore always go through the real transform.
+    if (!fast_coordinates() && current_document) {
+        fill_cached_virtual_rects();
+
+        if (cached_virtual_rects.size() > 0) {
+            DocumentPos top_left_docpos = doc_rect.top_left().to_document(current_document);
+            DocumentPos bottom_right_docpos = doc_rect.bottom_right().to_document(current_document);
+
+            if (top_left_docpos.page != bottom_right_docpos.page) {
+                bottom_right_docpos.page = top_left_docpos.page;
+                bottom_right_docpos.x = top_left_docpos.x + doc_rect.width();
+                bottom_right_docpos.y = top_left_docpos.y + doc_rect.height();
+            }
+
+            return NormalizedWindowRect(
+                virtual_to_window_pos(document_to_virtual_pos(top_left_docpos)).to_window_normalized(this),
+                virtual_to_window_pos(document_to_virtual_pos(bottom_right_docpos)).to_window_normalized(this)
+            );
+        }
+    }
 
     NormalizedWindowPos top_left = doc_rect.top_left().to_window_normalized(this);
-    NormalizedWindowPos bottom_right;
-    bottom_right.x = top_left.x + abs_width * zoom_level / view_width * 2;
-    bottom_right.y = top_left.y - abs_height * zoom_level / view_height * 2;
+    NormalizedWindowPos bottom_right = doc_rect.bottom_right().to_window_normalized(this);
 
     return NormalizedWindowRect(top_left, bottom_right);
 }

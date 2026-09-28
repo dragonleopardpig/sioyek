@@ -3359,6 +3359,9 @@ void PdfViewOpenGLWidget::compile_drawings(DocumentView* dv, const std::vector<F
         if (drawing.points.size() <= 0) {
             continue;
         }
+        if (drawing.type < 'a' || drawing.type > 'z') {
+            continue;
+        }
         if (!visible_drawing_mask[drawing.type - 'a']) {
             continue;
         }
@@ -3711,6 +3714,9 @@ void PdfViewOpenGLWidget::render_freehand_drawings(DocumentView* dv, const std::
         //}
 
         if (drawing.points.size() <= 0) {
+            continue;
+        }
+        if (drawing.type < 'a' || drawing.type > 'z') {
             continue;
         }
         if (!visible_drawing_mask[drawing.type - 'a']) {

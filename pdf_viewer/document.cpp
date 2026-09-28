@@ -2144,13 +2144,19 @@ void Document::get_pdf_annotations(std::vector<BookMark>& pdf_bookmarks, std::ve
             if (annot_type == pdf_annot_type::PDF_ANNOT_SQUARE) {
                 PagelessDocumentRect page_rect = pdf_bound_annot(context, annot);
                 AbsoluteRect rect = to_absolute(p, page_rect);
-                int n_channels;
-                float color[4];
+                // pdf_annot_color leaves the buffer untouched when the annotation
+                // has no stroke color, which is common for rectangle tools that
+                // only set an interior color.
+                int n_channels = 0;
+                float color[4] = { 0, 0, 0, 0 };
                 pdf_annot_color(context, annot, &n_channels, color);
+                if (n_channels == 1) {
+                    color[1] = color[2] = color[0];
+                }
                 float thickness = pdf_annot_border(context, annot);
 
                 FreehandDrawing drawing;
-                drawing.type = get_highlight_color_type(color);
+                drawing.type = n_channels > 0 ? get_highlight_color_type(color) : 'a';
                 drawing.points = {
                     FreehandDrawingPoint{ AbsoluteDocumentPos{ rect.x0, rect.y0 }, thickness },
                     FreehandDrawingPoint{ AbsoluteDocumentPos{ rect.x1, rect.y0 }, thickness },

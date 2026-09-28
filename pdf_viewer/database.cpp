@@ -823,7 +823,7 @@ bool DatabaseManager::insert_bookmark_freetext(const std::string& document_path,
         << bm.color[1] << ", "
         << bm.color[2] << ", "
         << bm.font_size << ", '"
-        << bm.font_face << "', '"
+        << esc(bm.font_face) << "', '"
         << esc(note_arrow_to_db_string(bm.arrow).toStdWString()) << "', "
         << bm.border_width << ", '"
         << esc(bm.uuid) << "', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);";
@@ -1991,6 +1991,7 @@ bool DatabaseManager::update_bookmark_change_color(const std::string& uuid, cons
         });
 }
 bool DatabaseManager::update_bookmark_border_width(const std::string& uuid, float border_width) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex);
     return generic_update_run_query("bookmarks",
         {{"uuid", QString::fromStdString(uuid)}},
         {{"border_width", border_width}, {"modification_time", "CURRENT_TIMESTAMP"}});

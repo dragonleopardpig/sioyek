@@ -9451,6 +9451,11 @@ TextToSpeechHandler* MainWidget::get_tts() {
 }
 
 void MainWidget::handle_bookmark_move_finish() {
+    if (!bookmark_move_data->has_moved) {
+        // The gesture never left the drag threshold, so nothing changed and the
+        // bookmark's modification time must not be bumped.
+        return;
+    }
     BookMark& bm = doc()->get_bookmarks()[bookmark_move_data->index];
     doc()->update_bookmark_position(bookmark_move_data->index, { bm.begin_x, bm.begin_y }, { bm.end_x, bm.end_y });
     if (bm.arrow && bookmark_move_data->initial_arrow &&
@@ -9472,6 +9477,17 @@ void MainWidget::handle_bookmark_move() {
 
     float diff_x = current_mouse_abspos.x - bookmark_move_data->initial_mouse_position.x;
     float diff_y = current_mouse_abspos.y - bookmark_move_data->initial_mouse_position.y;
+
+    // A plain left click on a note selects it, so a move must not begin until the
+    // cursor has actually travelled. Otherwise a click with a pixel of jitter
+    // permanently relocates the note.
+    if (!bookmark_move_data->has_moved) {
+        const float drag_threshold = 4.0f / main_document_view->get_zoom_level();
+        if (std::abs(diff_x) < drag_threshold && std::abs(diff_y) < drag_threshold) {
+            return;
+        }
+        bookmark_move_data->has_moved = true;
+    }
 
     BookMark& bookmark = doc()->get_bookmarks()[bookmark_move_data->index];
 

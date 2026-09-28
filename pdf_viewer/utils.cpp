@@ -73,6 +73,7 @@ extern std::wstring PAPER_SEARCH_TILE_PATH;
 extern std::wstring PAPER_SEARCH_CONTRIB_PATH;
 extern std::wstring UI_FONT_FACE_NAME;
 extern std::wstring STATUS_FONT_FACE_NAME;
+extern std::wstring TEXT_EDITOR_COMMAND;
 extern bool OPEN_LAST_FILE_ON_STARTUP;
 
 extern bool VERBOSE;
@@ -1285,19 +1286,61 @@ void open_file(const std::wstring& path, bool show_fail_message) {
 
 }
 
-void open_text_file(const std::wstring& path, bool show_fail_message) {
-    QString editor = qEnvironmentVariable("VISUAL");
-    if (editor.isEmpty()) {
-        editor = qEnvironmentVariable("EDITOR");
+// QProcess::splitCommand only exists from Qt 5.15 onwards.
+static QStringList split_editor_command(const QString& command) {
+#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
+    return QProcess::splitCommand(command);
+#else
+    QStringList arguments;
+    QString current;
+    QChar quote = 0;
+
+    for (const QChar& character : command) {
+        if (quote != 0) {
+            if (character == quote) {
+                quote = 0;
+            }
+            else {
+                current += character;
+            }
+        }
+        else if (character == '\'' || character == '"') {
+            quote = character;
+        }
+        else if (character.isSpace()) {
+            if (!current.isEmpty()) {
+                arguments.push_back(current);
+                current.clear();
+            }
+        }
+        else {
+            current += character;
+        }
     }
 
+    if (!current.isEmpty()) {
+        arguments.push_back(current);
+    }
+
+    return arguments;
+#endif
+}
+
+void open_text_file(const std::wstring& path, bool show_fail_message) {
     QString canonical_path = QString::fromStdWString(get_canonical_path(path));
-    QStringList arguments = QProcess::splitCommand(editor);
-    if (!arguments.isEmpty()) {
-        QString program = arguments.takeFirst();
-        arguments.push_back(canonical_path);
-        if (QProcess::startDetached(program, arguments)) {
-            return;
+
+    // Only an explicitly configured editor is launched directly. $EDITOR and
+    // $VISUAL normally name a terminal editor, and starting one detached from a
+    // GUI process succeeds and then exits immediately with nothing shown to the
+    // user, so the desktop handler stays the default.
+    if (TEXT_EDITOR_COMMAND.size() > 0) {
+        QStringList arguments = split_editor_command(QString::fromStdWString(TEXT_EDITOR_COMMAND));
+        if (!arguments.isEmpty()) {
+            QString program = arguments.takeFirst();
+            arguments.push_back(canonical_path);
+            if (QProcess::startDetached(program, arguments)) {
+                return;
+            }
         }
     }
 
@@ -3182,6 +3225,13 @@ char get_highlight_color_type(float color[3]) {
             min_distance = dist;
             min_index = i;
         }
+    }
+
+    if (min_index < 0) {
+        // No distance compared less than the initial bound, which happens when a
+        // color channel is NaN. Callers use the result to index 26 element
+        // arrays, so never return a type outside 'a'-'z'.
+        min_index = 0;
     }
 
     return 'a' + min_index;
