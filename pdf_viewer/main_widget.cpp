@@ -206,6 +206,7 @@ extern std::wstring RIGHT_CLICK_SCROLL_DOWN_COMMAND;
 extern std::wstring LEFT_CLICK_SCROLL_UP_COMMAND;
 extern std::wstring LEFT_CLICK_SCROLL_DOWN_COMMAND;
 extern float FREETEXT_BOOKMARK_FONT_SIZE;
+extern float FREETEXT_BOOKMARK_COLOR[3];
 extern std::wstring FREETEXT_BOOKMARK_FONT_FACE;
 extern std::wstring BOOK_SCAN_PATH;
 extern bool USE_RULER_TO_HIGHLIGHT_SYNCTEX_LINE;
@@ -9248,22 +9249,66 @@ bool MainWidget::copy_selected_note_text(bool cut) {
     const BookMark& bookmark = doc()->get_bookmarks()[selected_bookmark_index];
     copy_to_clipboard(bookmark.description);
 
+    // Remember how the note looked so a later paste reproduces it.
+    AbsoluteRect rect = bookmark.get_rectangle();
+    CopiedNoteStyle style;
+    style.width = rect.width();
+    style.height = rect.height();
+    style.font_size = bookmark.font_size;
+    style.border_width = bookmark.border_width;
+    for (int i = 0; i < 3; i++) style.color[i] = bookmark.color[i];
+    copied_note_style = style;
+
     if (cut) {
         handle_delete_selected_bookmark();
     }
     return true;
 }
 
-bool MainWidget::paste_into_selected_note() {
-    if (current_context() != UiContext::NoteSelected) return false;
+bool MainWidget::paste_note_from_clipboard() {
+    if (!doc() || !main_document_view) return false;
 
     QClipboard* clipboard = QGuiApplication::clipboard();
     if (!clipboard) return false;
 
-    std::wstring text = clipboard->text().toStdWString();
-    if (text.size() == 0) return true;
+    const std::wstring text = clipboard->text().toStdWString();
+    if (text.size() == 0) return false;
 
-    change_selected_bookmark_text(text);
+    // Paste makes a new note where the pointer is, the way pasting works
+    // elsewhere, rather than requiring an empty note to be drawn first.
+    AbsoluteDocumentPos anchor = get_cursor_abspos();
+
+    float width = 240.0f;
+    float height = 72.0f;
+    float font_size = -1;
+    if (copied_note_style) {
+        if (copied_note_style->width > 1.0f) width = copied_note_style->width;
+        if (copied_note_style->height > 1.0f) height = copied_note_style->height;
+        font_size = copied_note_style->font_size;
+    }
+
+    float color[3] = { FREETEXT_BOOKMARK_COLOR[0], FREETEXT_BOOKMARK_COLOR[1], FREETEXT_BOOKMARK_COLOR[2] };
+    if (copied_note_style) {
+        for (int i = 0; i < 3; i++) color[i] = copied_note_style->color[i];
+    }
+
+    AbsoluteRect rect;
+    rect.x0 = anchor.x;
+    rect.y0 = std::max(0.0f, anchor.y);
+    rect.x1 = rect.x0 + width;
+    rect.y1 = rect.y0 + height;
+
+    doc()->add_freetext_bookmark_with_color(text, rect, color, font_size);
+
+    const int index = static_cast<int>(doc()->get_bookmarks().size()) - 1;
+    if (index >= 0) {
+        if (copied_note_style) {
+            doc()->update_bookmark_border_width(index, copied_note_style->border_width);
+        }
+        set_selected_highlight_index(-1);
+        set_selected_bookmark_index(index);
+    }
+
     invalidate_render();
     return true;
 }

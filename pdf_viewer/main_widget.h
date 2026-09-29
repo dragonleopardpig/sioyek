@@ -125,6 +125,16 @@ enum class UiContext {
     PlacingNoteArrow,
 };
 
+// Size and styling of the last note copied or cut, so that pasting reproduces
+// it rather than guessing. Absent when the clipboard did not come from a note.
+struct CopiedNoteStyle {
+    float width = 0;
+    float height = 0;
+    float font_size = -1;
+    float border_width = 2.0f;
+    float color[3] = { 0 };
+};
+
 // Appearance of a note as its editor opened, so that Enter can persist what the
 // editor changed and Escape can put it back. Keyed by uuid because cancelling a
 // newly created note erases it from the bookmark vector.
@@ -306,6 +316,7 @@ public:
     std::optional<NoteArrowDragData> note_arrow_drag;
     // Set exactly while the note editor is open.
     std::optional<FreetextEditAppearance> freetext_edit_appearance = {};
+    std::optional<CopiedNoteStyle> copied_note_style = {};
     std::optional<PortalMoveData> portal_move_data = {};
 
     // when set, mouse wheel moves the ruler
@@ -513,7 +524,7 @@ public:
     bool has_selected_freetext_note();
     UiContext current_context();
     bool copy_selected_note_text(bool cut);
-    bool paste_into_selected_note();
+    bool paste_note_from_clipboard();
     bool eventFilter(QObject* obj, QEvent* event) override;
     void show_freetext_editor();
     void update_freetext_editor_geometry();

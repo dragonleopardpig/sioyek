@@ -4250,11 +4250,11 @@ public:
 class PasteCommand : public Command {
 public:
     static inline const std::string cname = "paste";
-    static inline const std::string hname = "Paste the clipboard into the selected note";
+    static inline const std::string hname = "Paste the clipboard as a new note";
     PasteCommand(MainWidget* w) : Command(cname, w) {};
     void perform() {
-        if (!widget->paste_into_selected_note()) {
-            show_error_message(L"Select a note first: paste replaces the selected note's text");
+        if (!widget->paste_note_from_clipboard()) {
+            show_error_message(L"Nothing to paste: the clipboard has no text");
         }
     }
 };
