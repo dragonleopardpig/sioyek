@@ -8,6 +8,7 @@
 #include <qfile.h>
 #include <QPainterPath>
 #include <QFontDatabase>
+#include <QHash>
 
 #ifdef SIOYEK_JKQT_MATHTEXT_SUPPORT
 #include <jkqtmathtext/jkqtmathtext.h>
@@ -876,6 +877,28 @@ struct NoteLayoutLine {
 // on Linux, so \mathcal silently falls back to a plain sans face and renders as
 // upright sans text instead of script. Pick the first script face that is actually
 // installed; an empty result leaves JKQTMathText's own default in place.
+// LaTeX's \mathcal and the rest of its math typography come from Computer
+// Modern. Latin Modern Math is its OpenType successor and carries the same
+// glyphs, so prefer it when installed and fall back to the XITS fonts that
+// JKQTMathText embeds.
+static QString note_math_roman_font() {
+    static const QString cached = [] {
+        const QStringList candidates = { "Latin Modern Math", "XITS Math", "STIX Two Math" };
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        const QStringList families = QFontDatabase::families();
+#else
+        const QStringList families = QFontDatabase().families();
+#endif
+        for (const QString& candidate : candidates) {
+            if (families.contains(candidate, Qt::CaseInsensitive)) {
+                return candidate;
+            }
+        }
+        return QString();
+    }();
+    return cached;
+}
+
 static QString note_math_caligraphic_font() {
     static const QString cached = [] {
         const QStringList candidates = {
@@ -897,6 +920,85 @@ static QString note_math_caligraphic_font() {
     return cached;
 }
 
+// JKQTMathText implements \mathcal by swapping the font family and drawing the
+// plain ASCII letter, so a math font yields an upright "E" and only a chancery
+// face yields script at all -- neither matches LaTeX's \mathcal. Rewriting
+// \mathcal{...} to the Unicode script letters instead lets the math font draw its
+// real script glyphs. Most live in Mathematical Alphanumeric Symbols, but a dozen
+// are "holes" there and live in Letterlike Symbols instead.
+static char32_t script_code_point(QChar letter) {
+    static const QHash<char16_t, char32_t> holes = {
+        {u'B', 0x212C}, {u'E', 0x2130}, {u'F', 0x2131}, {u'H', 0x210B},
+        {u'I', 0x2110}, {u'L', 0x2112}, {u'M', 0x2133}, {u'R', 0x211B},
+        {u'e', 0x212F}, {u'g', 0x210A}, {u'o', 0x2134},
+    };
+
+    const char16_t unit = letter.unicode();
+    const auto hole = holes.find(unit);
+    if (hole != holes.end()) return hole.value();
+
+    if (letter >= u'A' && letter <= u'Z') return 0x1D49C + (unit - u'A');
+    if (letter >= u'a' && letter <= u'z') return 0x1D4B6 + (unit - u'a');
+    return 0;
+}
+
+static QString substitute_mathcal(const QString& latex) {
+    static const QString macro = QStringLiteral("\\mathcal");
+    if (!latex.contains(macro)) return latex;
+
+    QString out;
+    out.reserve(latex.size());
+
+    int i = 0;
+    while (i < latex.size()) {
+        if (latex.mid(i, macro.size()) != macro) {
+            out += latex[i++];
+            continue;
+        }
+
+        int j = i + macro.size();
+        while (j < latex.size() && latex[j].isSpace()) j++;
+
+        QString body;
+        int after = -1;
+        if (j < latex.size() && latex[j] == '{') {
+            int depth = 0;
+            for (int k = j; k < latex.size(); k++) {
+                if (latex[k] == '{') depth++;
+                else if (latex[k] == '}') {
+                    depth--;
+                    if (depth == 0) { body = latex.mid(j + 1, k - j - 1); after = k + 1; break; }
+                }
+            }
+        }
+        else if (j < latex.size() && latex[j].isLetter()) {
+            body = latex.mid(j, 1);
+            after = j + 1;
+        }
+
+        if (after < 0) { out += latex[i++]; continue; }
+
+        // Only letters have script forms; leave anything else to JKQTMathText.
+        QString replaced;
+        bool all_mapped = true;
+        for (const QChar& c : body) {
+            const char32_t code = script_code_point(c);
+            if (code == 0) { all_mapped = false; break; }
+            replaced += QString::fromUcs4(&code, 1);
+        }
+
+        if (all_mapped && !replaced.isEmpty()) {
+            out += replaced;
+            i = after;
+        }
+        else {
+            out += latex[i++];
+        }
+    }
+
+    return out;
+}
+
 JKQTMathText* PdfViewOpenGLWidget::get_note_math_renderer(const QString& latex) {
     const std::string key = latex.toUtf8().toStdString();
     auto [entry, inserted] = note_math_cache.try_emplace(key);
@@ -904,12 +1006,17 @@ JKQTMathText* PdfViewOpenGLWidget::get_note_math_renderer(const QString& latex) 
         auto renderer = std::make_unique<JKQTMathText>();
         renderer->useXITS();
 
+        const QString roman = note_math_roman_font();
+        if (!roman.isEmpty() && roman != "XITS Math") {
+            renderer->setFontRomanAndMath(roman, JKQTMathTextFontEncoding::MTFEUnicode);
+        }
+
         const QString caligraphic = note_math_caligraphic_font();
         if (!caligraphic.isEmpty()) {
             renderer->setFontCaligraphic(caligraphic);
         }
         const auto options = JKQTMathText::ParseOptions(JKQTMathText::StartWithMathMode);
-        if (renderer->parse(latex, JKQTMathText::DefaultParser, options)) {
+        if (renderer->parse(substitute_mathcal(latex), JKQTMathText::DefaultParser, options)) {
             entry->second = std::move(renderer);
         }
     }
