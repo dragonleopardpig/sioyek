@@ -4235,12 +4235,35 @@ public:
     bool requires_document() { return false; }
 };
 
+class CutCommand : public Command {
+public:
+    static inline const std::string cname = "cut";
+    static inline const std::string hname = "Cut the selected note's text";
+    CutCommand(MainWidget* w) : Command(cname, w) {};
+    void perform() {
+        widget->copy_selected_note_text(true);
+    }
+};
+
+class PasteCommand : public Command {
+public:
+    static inline const std::string cname = "paste";
+    static inline const std::string hname = "Paste the clipboard into the selected note";
+    PasteCommand(MainWidget* w) : Command(cname, w) {};
+    void perform() {
+        widget->paste_into_selected_note();
+    }
+};
+
 class CopyCommand : public Command {
 public:
     static inline const std::string cname = "copy";
     static inline const std::string hname = "Copy";
     CopyCommand(MainWidget* w) : Command(cname, w) {};
     void perform() {
+        // With a note selected (and not being edited) copy the note's text;
+        // otherwise copy the selected document text as before.
+        if (widget->copy_selected_note_text(false)) return;
         copy_to_clipboard(widget->get_selected_text(ADD_NEWLINES_WHEN_COPYING_TEXT));
     }
 
@@ -7465,6 +7488,8 @@ CommandManager::CommandManager(ConfigManager* config_manager) {
     register_command<OpenDocumentEmbeddedCommand>();
     register_command<OpenDocumentEmbeddedFromCurrentPathCommand>();
     register_command<CopyCommand>();
+    register_command<CutCommand>();
+    register_command<PasteCommand>();
 #ifdef Q_OS_MACOS
     register_command<MacosLookupCommand>();
 #endif

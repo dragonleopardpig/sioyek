@@ -512,6 +512,8 @@ public:
     void update_selected_bookmark_border_width(float factor);
     bool has_selected_freetext_note();
     UiContext current_context();
+    bool copy_selected_note_text(bool cut);
+    bool paste_into_selected_note();
     bool eventFilter(QObject* obj, QEvent* event) override;
     void show_freetext_editor();
     void update_freetext_editor_geometry();

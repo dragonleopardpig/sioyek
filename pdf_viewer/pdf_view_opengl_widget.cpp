@@ -7,6 +7,7 @@
 #include <qdatetime.h>
 #include <qfile.h>
 #include <QPainterPath>
+#include <QFontDatabase>
 
 #ifdef SIOYEK_JKQT_MATHTEXT_SUPPORT
 #include <jkqtmathtext/jkqtmathtext.h>
@@ -870,12 +871,43 @@ struct NoteLayoutLine {
 
 }
 
+// JKQTMathText defaults the \mathcal (caligraphic) logical font to Comic Sans MS,
+// and useXITS() only sets the roman and math fonts. Comic Sans is normally absent
+// on Linux, so \mathcal silently falls back to a plain sans face and renders as
+// upright sans text instead of script. Pick the first script face that is actually
+// installed; an empty result leaves JKQTMathText's own default in place.
+static QString note_math_caligraphic_font() {
+    static const QString cached = [] {
+        const QStringList candidates = {
+            "TeX Gyre Chorus", "URW Chancery L", "Z003",
+            "STIX Two Math", "XITS Math", "Comic Sans MS"
+        };
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        const QStringList families = QFontDatabase::families();
+#else
+        const QStringList families = QFontDatabase().families();
+#endif
+        for (const QString& candidate : candidates) {
+            if (families.contains(candidate, Qt::CaseInsensitive)) {
+                return candidate;
+            }
+        }
+        return QString();
+    }();
+    return cached;
+}
+
 JKQTMathText* PdfViewOpenGLWidget::get_note_math_renderer(const QString& latex) {
     const std::string key = latex.toUtf8().toStdString();
     auto [entry, inserted] = note_math_cache.try_emplace(key);
     if (inserted) {
         auto renderer = std::make_unique<JKQTMathText>();
         renderer->useXITS();
+
+        const QString caligraphic = note_math_caligraphic_font();
+        if (!caligraphic.isEmpty()) {
+            renderer->setFontCaligraphic(caligraphic);
+        }
         const auto options = JKQTMathText::ParseOptions(JKQTMathText::StartWithMathMode);
         if (renderer->parse(latex, JKQTMathText::DefaultParser, options)) {
             entry->second = std::move(renderer);

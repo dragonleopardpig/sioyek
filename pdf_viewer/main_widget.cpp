@@ -15,6 +15,7 @@
 
 #include "coordinates.h"
 #include <QPlainTextEdit>
+#include <QClipboard>
 #include <QTextDocument>
 #include <iostream>
 #include <vector>
@@ -9236,6 +9237,35 @@ bool MainWidget::has_selected_freetext_note() {
     // A context the user cannot see must not capture a shortcut: once the selected
     // note has been scrolled off screen, `-` has to mean zoom out again.
     return bookmark.get_rectangle().to_window_normalized(main_document_view).is_visible();
+}
+
+// Clipboard actions on the selected note. Inside the note editor QPlainTextEdit
+// already handles cut/copy/paste itself; these cover the case where a note is
+// selected but not being edited, where the keys would otherwise do nothing.
+bool MainWidget::copy_selected_note_text(bool cut) {
+    if (current_context() != UiContext::NoteSelected) return false;
+
+    const BookMark& bookmark = doc()->get_bookmarks()[selected_bookmark_index];
+    copy_to_clipboard(bookmark.description);
+
+    if (cut) {
+        handle_delete_selected_bookmark();
+    }
+    return true;
+}
+
+bool MainWidget::paste_into_selected_note() {
+    if (current_context() != UiContext::NoteSelected) return false;
+
+    QClipboard* clipboard = QGuiApplication::clipboard();
+    if (!clipboard) return false;
+
+    std::wstring text = clipboard->text().toStdWString();
+    if (text.size() == 0) return true;
+
+    change_selected_bookmark_text(text);
+    invalidate_render();
+    return true;
 }
 
 UiContext MainWidget::current_context() {
