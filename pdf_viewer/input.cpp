@@ -4241,7 +4241,9 @@ public:
     static inline const std::string hname = "Cut the selected note's text";
     CutCommand(MainWidget* w) : Command(cname, w) {};
     void perform() {
-        widget->copy_selected_note_text(true);
+        if (!widget->copy_selected_note_text(true)) {
+            show_error_message(L"Select a note first: cut acts on the selected note");
+        }
     }
 };
 
@@ -4251,7 +4253,9 @@ public:
     static inline const std::string hname = "Paste the clipboard into the selected note";
     PasteCommand(MainWidget* w) : Command(cname, w) {};
     void perform() {
-        widget->paste_into_selected_note();
+        if (!widget->paste_into_selected_note()) {
+            show_error_message(L"Select a note first: paste replaces the selected note's text");
+        }
     }
 };
 
