@@ -16,6 +16,9 @@
 #include <string>
 #include <qclipboard.h>
 #include <qguiapplication.h>
+#include <QTextStream>
+#include <QDateTime>
+#include <QFile>
 #include <qprocess.h>
 #include <qdesktopservices.h>
 #include <qurl.h>
@@ -331,12 +334,28 @@ int get_f_key(std::wstring name) {
     return  num;
 }
 
+void ui_trace(const char* event, const std::wstring& detail) {
+    static const QString path = qEnvironmentVariable("SIOYEK_UI_TRACE");
+    if (path.isEmpty()) return;
+
+    QFile file(path);
+    if (!file.open(QIODevice::Append | QIODevice::Text)) return;
+
+    QTextStream stream(&file);
+    stream << QDateTime::currentDateTime().toString("hh:mm:ss.zzz")
+           << "  " << event;
+    if (detail.size() > 0) stream << "  |  " << QString::fromStdWString(detail);
+    stream << "\n";
+}
+
 void show_error_message(const std::wstring& error_message) {
+    ui_trace("error_message.show", error_message);
     QMessageBox msgBox;
     msgBox.setText(QString::fromStdWString(error_message));
     msgBox.setStandardButtons(QMessageBox::Ok);
     msgBox.setDefaultButton(QMessageBox::Ok);
     msgBox.exec();
+    ui_trace("error_message.closed", error_message);
 }
 
 std::wstring utf8_decode(const std::string& encoded_str) {

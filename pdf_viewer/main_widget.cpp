@@ -1677,6 +1677,7 @@ std::wstring MainWidget::get_status_string(bool is_right) {
 }
 
 void MainWidget::handle_escape() {
+    ui_trace("handle_escape");
 
     if (placing_note_arrow_index >= 0 || note_arrow_drag) {
         if (note_arrow_drag && doc() && note_arrow_drag->bookmark_index >= 0 &&
@@ -3190,6 +3191,7 @@ TextUnderPointerInfo MainWidget::find_location_of_text_under_pointer(DocumentPos
 }
 
 void MainWidget::mouseReleaseEvent(QMouseEvent* mevent) {
+    ui_trace("mouseRelease");
     // Double-clicking opened the editor; its release must not change the selection.
     if (freetext_editor->isVisible()) return;
 
@@ -3333,6 +3335,7 @@ int MainWidget::update_recent_clicks(AbsoluteDocumentPos mouse_abspos) {
 }
 
 void MainWidget::mouseDoubleClickEvent(QMouseEvent* mevent) {
+    ui_trace("mouseDoubleClick");
     if (!TOUCH_MODE && doc() && mevent->button() == Qt::LeftButton) {
         int index = doc()->get_bookmark_index_at_pos(WindowPos(mevent->pos()).to_absolute(main_document_view));
         if (index >= 0 && doc()->get_bookmarks()[index].is_freetext() && !doc()->get_bookmarks()[index].is_box()) {
@@ -3387,6 +3390,7 @@ void MainWidget::handle_triple_click(AbsoluteDocumentPos mouse_abspos) {
 }
 
 void MainWidget::mousePressEvent(QMouseEvent* mevent) {
+    ui_trace("mousePress", std::to_wstring(selected_bookmark_index));
     if (freetext_editor->isVisible()) finish_freetext_edit();
     bool is_shift_pressed = QGuiApplication::keyboardModifiers().testFlag(Qt::KeyboardModifier::ShiftModifier);
     bool is_control_pressed = QGuiApplication::keyboardModifiers().testFlag(Qt::KeyboardModifier::ControlModifier);
@@ -3771,6 +3775,7 @@ void MainWidget::show_mark_selector() {
 }
 
 void MainWidget::show_textbar(const std::wstring& command_name, const std::wstring& initial_value, bool is_password) {
+    ui_trace("textbar.show", command_name);
     QString init = "";
     text_suggestion_index = 0;
 
@@ -9373,6 +9378,7 @@ bool MainWidget::eventFilter(QObject* obj, QEvent* event) {
 }
 
 void MainWidget::show_freetext_editor() {
+    ui_trace("freetext_editor.show.enter", std::to_wstring(selected_bookmark_index));
     if (TOUCH_MODE || !doc() || selected_bookmark_index < 0 || selected_bookmark_index >= doc()->get_bookmarks().size()) return;
     const BookMark& bookmark = doc()->get_bookmarks()[selected_bookmark_index];
     if (!bookmark.is_freetext() || bookmark.is_box()) return;
@@ -9385,6 +9391,7 @@ void MainWidget::show_freetext_editor() {
     freetext_editor->setFocus();
     freetext_editor->moveCursor(QTextCursor::End);
     is_selecting = false;
+    ui_trace("freetext_editor.shown");
 }
 
 void MainWidget::update_freetext_editor_geometry() {
@@ -9405,6 +9412,7 @@ void MainWidget::update_freetext_editor_geometry() {
 
 void MainWidget::finish_freetext_edit() {
     if (!freetext_editor || !freetext_editor->isVisible()) return;
+    ui_trace("freetext_editor.finish");
     std::wstring text = freetext_editor->toPlainText().toStdWString();
     freetext_editor->hide();
     setFocus();
@@ -11343,6 +11351,7 @@ DocumentView* MainWidget::helper_document_view(){
 }
 
 void MainWidget::hide_command_line_edit(){
+    ui_trace("hide_command_line_edit", freetext_editor && freetext_editor->isVisible() ? L"editor was visible" : L"");
     // Dismissing the editor without saving is a cancel, so put the note's
     // appearance back. A no-op when handle_escape already restored it, and it
     // keeps freetext_edit_appearance from outliving the editor.
