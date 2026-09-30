@@ -9,6 +9,7 @@
 #include <QPainterPath>
 #include <QFontDatabase>
 #include <QHash>
+#include <QRegularExpression>
 
 #ifdef SIOYEK_JKQT_MATHTEXT_SUPPORT
 #include <jkqtmathtext/jkqtmathtext.h>
@@ -1022,6 +1023,25 @@ static QString substitute_mathcal(const QString& latex) {
     return out;
 }
 
+// amsmath's \boldsymbol and bm's \bm have no JKQTMathText instruction, so a note
+// that uses either loses its bold entirely and the error is only reported through
+// getErrorList(). JKQTMathText does know \mathbfit, which is the bold italic math
+// alphabet those two produce for letters, so rewrite them to it before parsing.
+static QString substitute_bold_math(const QString& latex) {
+    static const QRegularExpression macro(QStringLiteral("\\\\(?:boldsymbol|bm)(?![A-Za-z])"));
+    if (!latex.contains(QStringLiteral("\\boldsymbol")) && !latex.contains(QStringLiteral("\\bm"))) {
+        return latex;
+    }
+
+    QString out = latex;
+    out.replace(macro, QStringLiteral("\\mathbfit"));
+    return out;
+}
+
+static QString prepare_note_latex(const QString& latex) {
+    return substitute_bold_math(substitute_mathcal(latex));
+}
+
 JKQTMathText* PdfViewOpenGLWidget::get_note_math_renderer(const QString& latex) {
     const std::string key = latex.toUtf8().toStdString();
     auto [entry, inserted] = note_math_cache.try_emplace(key);
@@ -1044,7 +1064,7 @@ JKQTMathText* PdfViewOpenGLWidget::get_note_math_renderer(const QString& latex) 
             renderer->setFontCaligraphic(caligraphic);
         }
         const auto options = JKQTMathText::ParseOptions(JKQTMathText::StartWithMathMode);
-        if (renderer->parse(substitute_mathcal(latex), JKQTMathText::DefaultParser, options)) {
+        if (renderer->parse(prepare_note_latex(latex), JKQTMathText::DefaultParser, options)) {
             entry->second = std::move(renderer);
         }
     }
