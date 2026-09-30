@@ -41,7 +41,11 @@ readable by an unpatched Sioyek.
 - A searchable list of the key bindings actually in effect.
 - Exact-match-first command palette.
 - Config files open in a real text editor via a `text_editor_command` preference.
-- Context-sensitive shortcuts, with the active mode shown in the status bar.
+- Context-sensitive shortcuts, with the active mode shown in the status bar,
+  including a flag for a command waiting on a rectangle or a point. That one
+  matters: a `Text` requirement pops the text bar, but `Rect` and `Point` only
+  set a select mode, so an armed command otherwise gives no sign of itself and
+  quietly swallows the next drag.
 
 ## Building
 
