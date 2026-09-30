@@ -899,6 +899,29 @@ static QString note_math_roman_font() {
     return cached;
 }
 
+// JKQTMathText italicises math variables by applying an italic style to the
+// math-roman font. An OpenType math font has no italic cut, so Qt slants the
+// upright glyphs and letters like "e" come out looking upright rather than the
+// true italic TeX uses. Point math-roman at the matching *text* family, which
+// does have a real italic face, while symbols keep coming from the math font.
+static QString note_math_variable_font() {
+    static const QString cached = [] {
+        const QStringList candidates = { "Latin Modern Roman", "STIX Two Text", "XITS" };
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        const QStringList families = QFontDatabase::families();
+#else
+        const QStringList families = QFontDatabase().families();
+#endif
+        for (const QString& candidate : candidates) {
+            if (families.contains(candidate, Qt::CaseInsensitive)) {
+                return candidate;
+            }
+        }
+        return QString();
+    }();
+    return cached;
+}
+
 static QString note_math_caligraphic_font() {
     static const QString cached = [] {
         const QStringList candidates = {
@@ -1009,6 +1032,11 @@ JKQTMathText* PdfViewOpenGLWidget::get_note_math_renderer(const QString& latex) 
         const QString roman = note_math_roman_font();
         if (!roman.isEmpty() && roman != "XITS Math") {
             renderer->setFontRomanAndMath(roman, JKQTMathTextFontEncoding::MTFEUnicode);
+
+            const QString variables = note_math_variable_font();
+            if (!variables.isEmpty()) {
+                renderer->setFontMathRoman(variables, JKQTMathTextFontEncoding::MTFEUnicode);
+            }
         }
 
         const QString caligraphic = note_math_caligraphic_font();
