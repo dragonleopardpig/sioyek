@@ -905,9 +905,18 @@ static QString note_math_roman_font() {
 // upright glyphs and letters like "e" come out looking upright rather than the
 // true italic TeX uses. Point math-roman at the matching *text* family, which
 // does have a real italic face, while symbols keep coming from the math font.
+//
+// Name the 10pt optical master, not the "Latin Modern Roman" family. Latin
+// Modern ships a master per design size and Qt merges them all into that one
+// family, so asking for its Regular style can hand back the 5pt or 6pt cut.
+// Those are drawn wider and set much looser on purpose -- small optical sizes
+// are, that is what they are for -- and the result was an upright "cos" and a
+// word like "when" tracked about a third too wide, with the advances 1.34x
+// Computer Modern's while the glyph outlines stayed the right size. The 10pt
+// master measures M/x-height 2.13, the same as Latin Modern Math.
 static QString note_math_variable_font() {
     static const QString cached = [] {
-        const QStringList candidates = { "Latin Modern Roman", "STIX Two Text", "XITS" };
+        const QStringList candidates = { "LM Roman 10", "Latin Modern Roman", "STIX Two Text", "XITS" };
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
         const QStringList families = QFontDatabase::families();
 #else
