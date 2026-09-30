@@ -1173,7 +1173,22 @@ JKQTMathText* PdfViewOpenGLWidget::get_note_math_renderer(const QString& latex) 
             renderer->setFontCaligraphic(caligraphic);
         }
         const auto options = JKQTMathText::ParseOptions(JKQTMathText::StartWithMathMode);
-        if (renderer->parse(prepare_note_latex(latex), JKQTMathText::DefaultParser, options)) {
+        const QString prepared = prepare_note_latex(latex);
+        if (renderer->parse(prepared, JKQTMathText::DefaultParser, options)) {
+            // parse() reports success for input it only partly understood: an
+            // unknown instruction is dropped, and a construct given the wrong
+            // number of arguments collapses along with its contents. The
+            // complaint goes to getErrorList() and nowhere else, so a note can
+            // lose a whole term with no sign of it. Rendering anyway is still
+            // the right call -- most of these are partial, and falling back to
+            // raw LaTeX would be worse -- but leave a trace for whoever is
+            // looking into why a formula came out wrong.
+            const QStringList errors = renderer->getErrorList();
+            if (!errors.isEmpty()) {
+                ui_trace("noteMathParseError",
+                    (latex + QStringLiteral("  ->  ") + prepared
+                           + QStringLiteral("  ||  ") + errors.join(QStringLiteral(" ; "))).toStdWString());
+            }
             entry->second = std::move(renderer);
         }
     }
