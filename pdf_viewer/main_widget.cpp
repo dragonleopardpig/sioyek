@@ -8779,6 +8779,11 @@ std::string MainWidget::get_current_mode_string() {
     res += (context == UiContext::NoteSelected) ? "n" : "N";
     res += (context == UiContext::RectangleSelected) ? "b" : "B";
     res += (context == UiContext::PlacingNoteArrow) ? "w" : "W";
+    // A command waiting for a rectangle or a point gives no other sign of
+    // itself: a Text requirement pops the text bar, but Rect and Point just
+    // set a select mode. Without this, an armed command silently swallows the
+    // next drag -- which is how an accidental note-creation stayed hidden.
+    res += (rect_select_mode || point_select_mode) ? "c" : "C";
 
     if (main_document_view) {
         res += (main_document_view->selected_character_rects.size() > 0) ? "t" : "T";

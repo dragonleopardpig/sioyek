@@ -1351,21 +1351,19 @@ public:
 class NextItemCommand : public Command {
 public:
     static inline const std::string cname = "next_item";
-    static inline const std::string hname = "Go to next search result, or start a note when not searching";
+    static inline const std::string hname = "Go to next search result";
     NextItemCommand(MainWidget* w) : Command(cname, w) {}
 
     void perform() {
+        // This used to start a note when no search was active. The search is
+        // inactive far more often than it is active, so the overload fired
+        // almost every time, and a command waiting for a rectangle gives the
+        // user no sign of itself -- the next drag over a line of text was
+        // swallowed as the note's rectangle. Starting a note has its own
+        // binding now.
         if (widget->has_active_search()) {
             if (num_repeats == 0) num_repeats++;
             widget->goto_search_result(num_repeats);
-        }
-        else if (num_repeats > 1) {
-            // Starting a note cannot be repeated, so refuse rather than silently
-            // discard a count the user typed on purpose.
-            show_error_message(L"A repeat count only applies while search results are active");
-        }
-        else {
-            widget->run_command_with_name("add_freetext_bookmark");
         }
     }
 
