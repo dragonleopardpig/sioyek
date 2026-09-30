@@ -226,11 +226,44 @@ same `--instance-name`.
 ## Diagnostics
 
 Set `SIOYEK_UI_TRACE` to a file path to log UI lifecycle events — useful for
-catching a transient popup that appears and closes too quickly to see:
+catching a transient popup that appears and closes too quickly to see. Nothing
+is written, and no file is created, unless the variable is set:
 
 ```sh
 SIOYEK_UI_TRACE=/tmp/sioyek-ui.log sioyek
 ```
+
+It also records note LaTeX that JKQTMathText only partly understood. This
+matters more than it sounds: `parse()` returns **true** for input it did not
+fully handle — an unknown instruction is dropped, and a construct given the
+wrong number of arguments collapses together with its contents — and the
+complaint goes only to `getErrorList()`. A note can therefore lose a whole
+term with nothing on screen to say so. The trace line carries the source, the
+rewritten form, and the error:
+
+```
+15:46:48.960  noteMathParseError  |  \frobnicate{x}  ->  \frobnicate{x}  ||  error @ ch. 11: unknown instruction \frobnicate
+```
+
+If a formula comes out wrong, look here first.
+
+### LaTeX spellings JKQTMathText does not accept
+
+These are rewritten before parsing, so you can write ordinary LaTeX. Listed
+because the failure mode is silent, and anything not on this list that
+JKQTMathText does not know will fail the same way:
+
+| You write | JKQTMathText wants | Without the rewrite |
+| --- | --- | --- |
+| `\mathcal{E}` | a script glyph, not a font switch | upright roman `E` |
+| `\boldsymbol{E}`, `\bm{E}` | `\mathbfit{E}` | bold silently dropped |
+| `\overbrace{x}^{n}` | `\overbrace{x}{n}` | **whole construct collapses** |
+| `\underbrace{x}_{m}` | `\underbrace{x}{m}` | **whole construct collapses** |
+| `\overbracket`, `\underbracket` | same two-group form | **whole construct collapses** |
+| `\overbrace{x}` (no label) | `\overbrace{x}{}` | **whole construct collapses** |
+
+`\overset`, `\underset` and `\stackrel` already agree with LaTeX and are left
+alone.
 
 ## Upstreaming
 
