@@ -230,8 +230,15 @@ catching a transient popup that appears and closes too quickly to see. Nothing
 is written, and no file is created, unless the variable is set:
 
 ```sh
-SIOYEK_UI_TRACE=/tmp/sioyek-ui.log sioyek
+SIOYEK_UI_TRACE=~/.local/state/sioyek/ui.log sioyek
 ```
+
+Create the directory first: the trace fails silently if the path is not
+writable. Mouse events are traced, so it is safe to leave set permanently —
+the file rolls over at 1 MiB and keeps one previous copy as `.1`, costing at
+most 2 MiB. Setting it in whatever launcher you actually use, rather than
+remembering to set it when something goes wrong, is the point: these faults
+are the intermittent kind.
 
 It also records note LaTeX that JKQTMathText only partly understood. This
 matters more than it sounds: `parse()` returns **true** for input it did not
