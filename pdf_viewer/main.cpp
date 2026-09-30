@@ -718,6 +718,36 @@ int main(int argc, char* args[]) {
     QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts, true);
     OpenWithApplication app(argc, args);
 
+    // A widget that appears and vanishes too quickly to identify leaves nothing
+    // in a trace that only knows about the widgets someone thought to
+    // instrument. Watch every widget instead: this filter is installed only
+    // when SIOYEK_UI_TRACE is set, and only reports top-level widgets and
+    // popups, which is what "something flashed on screen" means.
+    if (!qEnvironmentVariable("SIOYEK_UI_TRACE").isEmpty()) {
+        class WidgetShowWatcher : public QObject {
+        public:
+            using QObject::QObject;
+        protected:
+            bool eventFilter(QObject* obj, QEvent* ev) override {
+                const QEvent::Type t = ev->type();
+                if (t == QEvent::Show || t == QEvent::Hide) {
+                    QWidget* w = qobject_cast<QWidget*>(obj);
+                    if (w && (w->isWindow() || (w->windowFlags() & Qt::Popup))) {
+                        QString detail = QString::fromUtf8(w->metaObject()->className());
+                        if (!w->objectName().isEmpty()) detail += " #" + w->objectName();
+                        const QString title = w->windowTitle();
+                        if (!title.isEmpty()) detail += " \"" + title + "\"";
+                        detail += QString(" %1x%2").arg(w->width()).arg(w->height());
+                        ui_trace(t == QEvent::Show ? "widget.show" : "widget.hide",
+                                 detail.toStdWString());
+                    }
+                }
+                return QObject::eventFilter(obj, ev);
+            }
+        };
+        app.installEventFilter(new WidgetShowWatcher(&app));
+    }
+
     int font_id = QFontDatabase::addApplicationFont(":/resources/fonts/JetBrainsMono.ttf");
 
     if (font_id == -1) {

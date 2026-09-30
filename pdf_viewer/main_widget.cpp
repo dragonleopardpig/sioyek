@@ -959,7 +959,11 @@ MainWidget::MainWidget(fz_context* mupdf_context,
     // The trace file is appended to across runs, so without this there is no
     // way to tell which events belong to which process -- which matters when
     // the question is whether a rebuilt binary is actually the one running.
-    ui_trace("startup", utf8_decode(std::string(__DATE__) + " " + std::string(__TIME__)));
+    // Not __DATE__: a reproducible build freezes it to Jan 1 1980. The
+    // executable path identifies the build -- under Nix it carries the store
+    // hash, which is exactly what tells you whether a rebuild is really the
+    // binary now running.
+    ui_trace("startup", QCoreApplication::applicationFilePath().toStdWString());
 
     setMouseTracking(true);
     setAcceptDrops(true);
