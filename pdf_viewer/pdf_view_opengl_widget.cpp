@@ -1047,8 +1047,108 @@ static QString substitute_bold_math(const QString& latex) {
     return out;
 }
 
+// Reads a brace group starting at latex[start] == '{'. Returns the body and
+// sets after to the index just past the closing brace, or returns false.
+static bool read_brace_group(const QString& latex, int start, QString& body, int& after) {
+    if (start >= latex.size() || latex[start] != '{') return false;
+
+    int depth = 0;
+    for (int i = start; i < latex.size(); i++) {
+        if (latex[i] == '{') depth++;
+        else if (latex[i] == '}') {
+            depth--;
+            if (depth == 0) {
+                body = latex.mid(start + 1, i - start - 1);
+                after = i + 1;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// JKQTMathText spells the annotated braces \overbrace{body}{label}, with the
+// label as a second brace group. LaTeX spells it \overbrace{body}^{label} and
+// lets the label be omitted. Given the LaTeX form JKQTMathText reports
+// "expected two arguments" through getErrorList() -- which nothing reads --
+// and then collapses the whole construct, so the *body* disappears too, not
+// just the label. Rewrite to the two-group form it wants.
+static QString substitute_annotated_braces(const QString& latex) {
+    static const QHash<QString, QChar> macros = {
+        { QStringLiteral("\\overbrace"),    u'^' },
+        { QStringLiteral("\\overbracket"),  u'^' },
+        { QStringLiteral("\\underbrace"),   u'_' },
+        { QStringLiteral("\\underbracket"), u'_' },
+    };
+
+    bool present = false;
+    for (auto it = macros.begin(); it != macros.end(); ++it) {
+        if (latex.contains(it.key())) { present = true; break; }
+    }
+    if (!present) return latex;
+
+    QString out;
+    out.reserve(latex.size());
+
+    int i = 0;
+    while (i < latex.size()) {
+        QString macro;
+        QChar script;
+        for (auto it = macros.begin(); it != macros.end(); ++it) {
+            const int end = i + it.key().size();
+            // Reject a longer name: \overbracket must not match as \overbrace.
+            if (latex.mid(i, it.key().size()) != it.key()) continue;
+            if (end < latex.size() && latex[end].isLetter()) continue;
+            if (macro.isEmpty() || it.key().size() > macro.size()) {
+                macro = it.key();
+                script = it.value();
+            }
+        }
+
+        if (macro.isEmpty()) { out += latex[i++]; continue; }
+
+        int j = i + macro.size();
+        while (j < latex.size() && latex[j].isSpace()) j++;
+
+        QString body;
+        int after_body = -1;
+        if (!read_brace_group(latex, j, body, after_body)) { out += latex[i++]; continue; }
+
+        int k = after_body;
+        while (k < latex.size() && latex[k].isSpace()) k++;
+
+        QString label;
+        int after = after_body;
+        if (k < latex.size() && latex[k] == script) {
+            k++;
+            while (k < latex.size() && latex[k].isSpace()) k++;
+            int after_label = -1;
+            if (read_brace_group(latex, k, label, after_label)) {
+                after = after_label;
+            }
+            else if (k < latex.size()) {
+                // A single token may carry the script without braces: ^n
+                label = latex.mid(k, 1);
+                after = k + 1;
+            }
+        }
+        else if (k < latex.size() && latex[k] == '{') {
+            // Already in JKQTMathText's own two-group form; leave it alone.
+            out += latex.mid(i, after_body - i);
+            i = after_body;
+            continue;
+        }
+
+        out += macro + '{' + substitute_annotated_braces(body) + "}{"
+             + substitute_annotated_braces(label) + '}';
+        i = after;
+    }
+
+    return out;
+}
+
 static QString prepare_note_latex(const QString& latex) {
-    return substitute_bold_math(substitute_mathcal(latex));
+    return substitute_annotated_braces(substitute_bold_math(substitute_mathcal(latex)));
 }
 
 JKQTMathText* PdfViewOpenGLWidget::get_note_math_renderer(const QString& latex) {
