@@ -956,6 +956,10 @@ MainWidget::MainWidget(fz_context* mupdf_context,
     window_id = next_window_id;
     next_window_id++;
 
+    // The trace file is appended to across runs, so without this there is no
+    // way to tell which events belong to which process -- which matters when
+    // the question is whether a rebuilt binary is actually the one running.
+    ui_trace("startup", utf8_decode(std::string(__DATE__) + " " + std::string(__TIME__)));
 
     setMouseTracking(true);
     setAcceptDrops(true);
@@ -2305,6 +2309,10 @@ bool MainWidget::handle_command_types(std::unique_ptr<Command> new_command, int 
     }
 
     if (new_command) {
+        // Which command ran is the one thing the trace could not answer, and
+        // without it an unexpected UI state can only be guessed at from the
+        // mouse events around it.
+        ui_trace("command", utf8_decode(new_command->get_name()));
         new_command->set_num_repeats(num_repeats);
         if (new_command->pushes_state()) {
             push_state();
