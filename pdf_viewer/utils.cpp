@@ -19,6 +19,7 @@
 #include <QTextStream>
 #include <QDateTime>
 #include <QFile>
+#include <QFileInfo>
 #include <qprocess.h>
 #include <qdesktopservices.h>
 #include <qurl.h>
@@ -337,6 +338,18 @@ int get_f_key(std::wstring name) {
 void ui_trace(const char* event, const std::wstring& detail) {
     static const QString path = qEnvironmentVariable("SIOYEK_UI_TRACE");
     if (path.isEmpty()) return;
+
+    // Mouse events are traced, so the file grows for as long as Sioyek is
+    // used. Leaving the variable set permanently is the only way to catch a
+    // fault that shows up once a week, so roll the file over instead of
+    // letting it grow without bound: at a megabyte, keep it as .1 -- one
+    // previous run's worth of history -- and start again. Two megabytes total.
+    static const qint64 max_bytes = 1024 * 1024;
+    if (QFileInfo(path).size() > max_bytes) {
+        const QString previous = path + ".1";
+        QFile::remove(previous);
+        QFile::rename(path, previous);
+    }
 
     QFile file(path);
     if (!file.open(QIODevice::Append | QIODevice::Text)) return;
