@@ -28,6 +28,7 @@
 extern "C" void showLookupForString(WId winId, const char* text, double x, double y);
 #endif
 
+extern bool SHOULD_RENDER_SIOYEK_ANNOTATIONS;
 extern bool SHOULD_WARN_ABOUT_USER_KEY_OVERRIDE;
 extern bool USE_LEGACY_KEYBINDS;
 extern std::map<std::wstring, std::wstring> ADDITIONAL_COMMANDS;
@@ -4971,6 +4972,24 @@ public:
     bool requires_document() { return true; }
 };
 
+// The counterpart to toggle_pdf_annotations, for Sioyek's own highlights, notes
+// and drawings rather than the ones embedded in the file. Importing a marked-up
+// PDF leaves both sets present and drawn on top of each other, and until now
+// only the embedded side could be turned off.
+class ToggleSioyekAnnotationsCommand : public Command {
+public:
+    static inline const std::string cname = "toggle_sioyek_annotations";
+    static inline const std::string hname = "Toggle whether Sioyek's own annotations should be rendered";
+    ToggleSioyekAnnotationsCommand(MainWidget* w) : Command(cname, w) {};
+
+    void perform() {
+        SHOULD_RENDER_SIOYEK_ANNOTATIONS = !SHOULD_RENDER_SIOYEK_ANNOTATIONS;
+        widget->invalidate_render();
+    }
+
+    bool requires_document() { return true; }
+};
+
 class OpenLinkCommand : public Command {
 public:
     static inline const std::string cname = "open_link";
@@ -7526,6 +7545,7 @@ CommandManager::CommandManager(ConfigManager* config_manager) {
     register_command<QuitCommand>();
     register_command<EscapeCommand>();
     register_command<TogglePDFAnnotationsCommand>();
+    register_command<ToggleSioyekAnnotationsCommand>();
     register_command<CloseWindowCommand>();
     register_command<OpenLinkCommand>();
     register_command<OverviewLinkCommand>();

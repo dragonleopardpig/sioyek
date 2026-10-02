@@ -33,6 +33,7 @@
 #endif
 
 extern bool RECTO_VERSO_ADJUSTMENT;
+extern bool SHOULD_RENDER_SIOYEK_ANNOTATIONS;
 extern bool DEBUG_DISPLAY_FREEHAND_POINTS;
 extern bool DEBUG_SMOOTH_FREEHAND_DRAWINGS;
 extern Path shader_path;
@@ -2323,7 +2324,7 @@ void PdfViewOpenGLWidget::my_render(QPainter* painter) {
             render_portal_rect(painter, pending_portal_rect.value(), true);
         }
 
-        for (int i = 0; i < bookmarks.size(); i++) {
+        for (int i = 0; SHOULD_RENDER_SIOYEK_ANNOTATIONS && i < bookmarks.size(); i++) {
             if (bookmarks[i].begin_y > -1) {
                 if (bookmarks[i].end_x == -1) {
 
@@ -3922,6 +3923,7 @@ void PdfViewOpenGLWidget::render_compiled_drawings() {
 }
 
 void PdfViewOpenGLWidget::render_drawings(DocumentView* dv, const std::vector<FreehandDrawing>& drawings, bool highlighted) {
+    if (!SHOULD_RENDER_SIOYEK_ANNOTATIONS) return;
     render_rectangle_drawings(dv, drawings, highlighted);
     render_freehand_drawings(dv, drawings, highlighted);
 }
@@ -4415,6 +4417,7 @@ void PdfViewOpenGLWidget::render_text_highlights(){
 }
 
 void PdfViewOpenGLWidget::render_highlight_annotations(){
+    if (!SHOULD_RENDER_SIOYEK_ANNOTATIONS) return;
     if (document_view->get_document()->can_use_highlights()) {
         const std::vector<Highlight>& highlights = document_view->get_document()->get_highlights();
         std::vector<int> visible_highlight_indices = document_view->get_visible_highlight_indices();

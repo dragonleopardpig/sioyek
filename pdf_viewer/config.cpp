@@ -53,6 +53,11 @@ bool SLICED_RENDERING = false;
 int NUM_V_SLICES = 5;
 int NUM_H_SLICES = 1;
 bool SHOULD_RENDER_PDF_ANNOTATIONS = true;
+// Sioyek's own annotations -- highlights, notes and freehand drawings -- as
+// opposed to the ones embedded in the PDF. After importing a marked-up PDF
+// both sets exist and are drawn on top of each other; this is the switch for
+// the Sioyek side, mirroring render_pdf_annotations for the embedded side.
+bool SHOULD_RENDER_SIOYEK_ANNOTATIONS = true;
 bool AUTOMATICALLY_DOWNLOAD_MATCHING_PAPER_NAME = true;
 bool NO_AUTO_CONFIG = false;
 bool USE_RULER_TO_HIGHLIGHT_SYNCTEX_LINE = true;
@@ -1003,6 +1008,7 @@ ConfigManager::ConfigManager(const Path& default_path, const Path& auto_path, co
     add_bool(L"linear_filter", &LINEAR_TEXTURE_FILTERING);
     add_bool(L"collapsed_toc", &SMALL_TOC);
     add_bool(L"render_pdf_annotations", &SHOULD_RENDER_PDF_ANNOTATIONS);
+    add_bool(L"render_sioyek_annotations", &SHOULD_RENDER_SIOYEK_ANNOTATIONS);
     add_bool(L"ruler_mode", &RULER_MODE);
     add_bool(L"use_ruler_to_highlight_synctex_line", &USE_RULER_TO_HIGHLIGHT_SYNCTEX_LINE);
     add_bool(L"highlight_link_destination", &HIGHLIGHT_LINK_DESTINATION);
