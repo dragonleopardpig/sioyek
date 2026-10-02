@@ -1026,7 +1026,19 @@ MainWidget::MainWidget(fz_context* mupdf_context,
     freetext_editor->viewport()->setCursor(Qt::IBeamCursor);
     freetext_editor->setStyleSheet("QPlainTextEdit { background: #fffde7; border: none; selection-background-color: #377ac4; selection-color: white; }");
     freetext_editor->setWordWrapMode(QTextOption::WordWrap);
-    freetext_editor->setToolTip("Enter or click elsewhere: save · Empty text: rectangle · Shift+Enter: new line · Escape: cancel · $...$: inline math · $$...$$: display math · Ctrl +/-: border width");
+    // One line of this came to 976 pixels, and Qt pops a tooltip about a second
+    // after the pointer settles -- so opening a note threw a banner across the
+    // screen that vanished again, reading as a glitch rather than as help. Same
+    // text, one hint per line, which is narrow enough to be recognisable as a
+    // tooltip.
+    freetext_editor->setToolTip(
+        "Enter, or click elsewhere: save\n"
+        "Empty text: leaves a rectangle\n"
+        "Shift+Enter: new line\n"
+        "Escape: cancel\n"
+        "$...$: inline math\n"
+        "$$...$$: display math\n"
+        "Ctrl +/-: border width");
     freetext_editor->installEventFilter(this);
     QObject::connect(freetext_editor, &QPlainTextEdit::textChanged, this, [this]() {
         if (freetext_editor->isVisible()) {
