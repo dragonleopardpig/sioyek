@@ -276,6 +276,27 @@ JKQTMathText does not know will fail the same way:
 `\overset`, `\underset` and `\stackrel` already agree with LaTeX and are left
 alone.
 
+## Checks
+
+`scripts/tools/check_tooltip_shape.cpp` fails on a tooltip wide enough to read
+as a banner. Qt shows a tooltip about a second after the pointer settles and
+hides it when the pointer moves, so a long single line arrives as something
+flashing across the screen and vanishing -- which is how the note editor's own
+976-pixel help string was reported, repeatedly, as a popup appearing and
+closing itself. It is hard to find by reading code, because nothing in the
+application shows it.
+
+```sh
+g++ -std=c++17 -fPIC scripts/tools/check_tooltip_shape.cpp \
+    -o /tmp/check_tooltip_shape \
+    $(pkg-config --cflags --libs Qt6Widgets Qt6Gui Qt6Core)
+QT_QPA_PLATFORM=offscreen /tmp/check_tooltip_shape .
+```
+
+It parses every `setToolTip()` in `pdf_viewer/`, measures the widest line with
+Qt's own tooltip font, and exits non-zero over 400px. The offending string
+measured 1183px; the replacement measures 184px across seven lines.
+
 ## Upstreaming
 
 The branch is kept rebasable on `ahrm/sioyek` `main`. Changes are grouped one
