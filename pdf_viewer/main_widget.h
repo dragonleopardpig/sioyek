@@ -319,6 +319,9 @@ public:
     std::optional<BookmarkMoveData> bookmark_move_data = {};
     int placing_note_arrow_index = -1;
     std::optional<NoteArrowDragData> note_arrow_drag;
+    // Which arrow of the selected note the user last clicked, so a particular
+    // one can be deleted. -1 when no arrow has been picked out.
+    int selected_note_arrow_index = -1;
     // Set exactly while the note editor is open.
     std::optional<FreetextEditAppearance> freetext_edit_appearance = {};
     std::optional<CopiedNoteStyle> copied_note_style = {};

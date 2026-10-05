@@ -155,6 +155,7 @@ private:
     bool fastread_mode = false;
     int selected_highlight_index = -1;
     int selected_bookmark_index = -1;
+    int selected_note_arrow_index = -1;
 
     int last_mouse_down_window_x = 0;
     int last_mouse_down_window_y = 0;
@@ -373,6 +374,9 @@ public:
     void clear_tag_prefix();
     void set_selected_highlight_index(int index);
     void set_selected_bookmark_index(int index);
+    // Which of the selected note's arrows is picked out, so it can be drawn
+    // differently from its siblings; -1 when none is.
+    void set_selected_note_arrow_index(int index);
     void set_highlighted_tags(std::vector<std::string> tags);
     bool is_tag_highlighted(const std::string& tag);
     void set_pending_portal_position(std::optional<AbsoluteRect> rect);

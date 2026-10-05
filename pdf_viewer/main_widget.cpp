@@ -3526,10 +3526,27 @@ void MainWidget::mousePressEvent(QMouseEvent* mevent) {
         if (handle) {
             NoteArrowDragPart part = handle == 1 ? NoteArrowDragPart::Tip :
                                      handle == 2 ? NoteArrowDragPart::Control1 : NoteArrowDragPart::Control2;
+            selected_note_arrow_index = dragged_arrow;
+            opengl_widget->set_selected_note_arrow_index(selected_note_arrow_index);
             note_arrow_drag = NoteArrowDragData{selected_bookmark_index, dragged_arrow, part,
                                                  doc()->get_bookmarks()[selected_bookmark_index].arrows};
             setFocus();
             is_selecting = false;
+            return;
+        }
+        // An arrow is clickable in its own right: the handle test above only
+        // looks at the selected note, so without this an arrow could not be
+        // reached, let alone deleted, until its box had been clicked first.
+        int clicked_arrow = 0;
+        int curve_owner = note_arrow_curve_at(WindowPos(mevent->pos()), &clicked_arrow);
+        if (curve_owner >= 0) {
+            set_selected_highlight_index(-1);
+            set_selected_bookmark_index(curve_owner);
+            selected_note_arrow_index = clicked_arrow;
+            opengl_widget->set_selected_note_arrow_index(selected_note_arrow_index);
+            setFocus();
+            is_selecting = false;
+            validate_render();
             return;
         }
         int arrow_index = note_arrow_tip_at(WindowPos(mevent->pos()));
@@ -3540,6 +3557,8 @@ void MainWidget::mousePressEvent(QMouseEvent* mevent) {
             // arrows the tip belongs to.
             int tip_arrow = 0;
             note_arrow_handle_at(WindowPos(mevent->pos()), &tip_arrow);
+            selected_note_arrow_index = tip_arrow;
+            opengl_widget->set_selected_note_arrow_index(selected_note_arrow_index);
             note_arrow_drag = NoteArrowDragData{arrow_index, tip_arrow, NoteArrowDragPart::Tip,
                                                  doc()->get_bookmarks()[arrow_index].arrows};
             setFocus();
@@ -9246,11 +9265,20 @@ void MainWidget::delete_selected_note_arrow() {
     // With several arrows on a note, remove the one whose handle is under the
     // cursor; failing that the newest, so repeating the command peels them off
     // in the order they were drawn.
+    // The arrow clicked earlier, else one under the cursor now, else the
+    // newest -- so repeating the command peels them off in reverse order.
     int target = static_cast<int>(bookmark.arrows.size()) - 1;
     int hovered = 0;
-    if (note_arrow_handle_at(WindowPos(mapFromGlobal(QCursor::pos())), &hovered)) target = hovered;
+    const WindowPos cursor = WindowPos(mapFromGlobal(QCursor::pos()));
+    if (selected_note_arrow_index >= 0 && selected_note_arrow_index < static_cast<int>(bookmark.arrows.size())) {
+        target = selected_note_arrow_index;
+    }
+    else if (note_arrow_handle_at(cursor, &hovered)) target = hovered;
+    else if (note_arrow_curve_at(cursor, &hovered) == selected_bookmark_index) target = hovered;
     std::vector<NoteArrow> remaining = bookmark.arrows;
     if (target >= 0 && target < static_cast<int>(remaining.size())) remaining.erase(remaining.begin() + target);
+    selected_note_arrow_index = -1;
+    opengl_widget->set_selected_note_arrow_index(selected_note_arrow_index);
     doc()->update_bookmark_arrow(selected_bookmark_index, remaining);
     invalidate_render();
 }
@@ -12235,8 +12263,10 @@ void MainWidget::set_selected_bookmark_index(int index) {
     if (index != -1) {
         selected_rectangle_point = {};
     }
+    if (selected_bookmark_index != index) selected_note_arrow_index = -1;
     selected_bookmark_index = index;
     opengl_widget->set_selected_bookmark_index(index);
+    opengl_widget->set_selected_note_arrow_index(selected_note_arrow_index);
 }
 
 void MainWidget::handle_highlight_tags_pre_perform(const std::vector<int>& visible_highlight_indices) {

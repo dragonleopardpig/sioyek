@@ -2399,7 +2399,10 @@ void PdfViewOpenGLWidget::my_render(QPainter* painter) {
                         }
                     }
                     else {
-                        for (const NoteArrow& arrow : bookmarks[i].arrows) {
+                        for (size_t arrow_i = 0; arrow_i < bookmarks[i].arrows.size(); arrow_i++) {
+                            const NoteArrow& arrow = bookmarks[i].arrows[arrow_i];
+                            const bool arrow_selected = i == selected_bookmark_index &&
+                                static_cast<int>(arrow_i) == selected_note_arrow_index;
                             WindowPos anchor = note_arrow_anchor(bookmarks[i], arrow.control1).to_window(document_view);
                             WindowPos control1 = arrow.control1.to_window(document_view);
                             WindowPos control2 = arrow.control2.to_window(document_view);
@@ -2412,7 +2415,10 @@ void PdfViewOpenGLWidget::my_render(QPainter* painter) {
                             painter->save();
                             painter->setRenderHint(QPainter::Antialiasing, true);
                             QColor arrow_color = convert_float3_to_qcolor(&bookmark_color[0]);
-                            painter->setPen(QPen(arrow_color, 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+                            // A picked arrow is drawn heavier, so it is clear which
+                            // one a delete will take when a note carries several.
+                            painter->setPen(QPen(arrow_color, arrow_selected ? 4.0 : 2.4,
+                                Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
                             QPainterPath curve(start_point);
                             curve.cubicTo(control1_point, control2_point, tip_point);
                             painter->drawPath(curve);
@@ -2431,7 +2437,10 @@ void PdfViewOpenGLWidget::my_render(QPainter* painter) {
                                 painter->drawLine(tip_point, base - normal * 5.0);
                             }
 
-                            if (i == selected_bookmark_index) {
+                            // Handles for the picked arrow, or for all of them while
+                            // none is picked out.
+                            if (i == selected_bookmark_index &&
+                                (selected_note_arrow_index < 0 || arrow_selected)) {
                                 painter->setPen(QPen(QColor(55, 122, 196), 1, Qt::DashLine));
                                 painter->drawLine(start_point, control1_point);
                                 painter->drawLine(control2_point, tip_point);
@@ -4582,6 +4591,10 @@ void PdfViewOpenGLWidget::clear_tag_prefix() {
 
 void PdfViewOpenGLWidget::set_selected_highlight_index(int index) {
     selected_highlight_index = index;
+}
+
+void PdfViewOpenGLWidget::set_selected_note_arrow_index(int index) {
+    selected_note_arrow_index = index;
 }
 
 void PdfViewOpenGLWidget::set_selected_bookmark_index(int index) {
