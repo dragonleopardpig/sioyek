@@ -9748,6 +9748,51 @@ void MainWidget::handle_portal_move_finish() {
     }
 }
 
+// How far the drawn ink sits inside the text's layout box, in absolute document
+// units. A line box runs from the ascent line to the descent line, but a
+// lowercase "x" only inks the x-height band, so clamping a resize at the layout
+// box leaves a conspicuous gap above the glyph before the text starts moving --
+// far larger than the gap on the left, where the layout box and the ink nearly
+// coincide. Measuring the ink lets the edge come up to the glyph itself.
+void MainWidget::note_text_ink_inset(const BookMark& bookmark, float* out_top, float* out_left) {
+    *out_top = 0.0f;
+    *out_left = 0.0f;
+    const float zoom = main_document_view ? main_document_view->get_zoom_level() : 1.0f;
+    if (zoom <= 0.0f) return;
+
+    // The same font the renderer builds for a note.
+    QFont font = this->font();
+    const float size = bookmark.font_size == -1 ? FREETEXT_BOOKMARK_FONT_SIZE : bookmark.font_size;
+    font.setPointSizeF(size * zoom * 0.75);
+    const QFontMetricsF metrics(font);
+
+    const QString text = QString::fromStdWString(bookmark.description);
+    const QStringList lines = text.split('\n');
+
+    // The top inset comes from the first line, which is what the top edge meets.
+    qreal ink_top = metrics.ascent();
+    if (!lines.isEmpty() && !lines.front().trimmed().isEmpty()) {
+        const QRectF tight = metrics.tightBoundingRect(lines.front());
+        // tight.top() is measured from the baseline and is negative above it.
+        ink_top = metrics.ascent() + tight.top();
+    }
+
+    // The left inset is the nearest any line's ink comes to the layout edge.
+    qreal ink_left = 0.0;
+    bool have_left = false;
+    for (const QString& line : lines) {
+        if (line.trimmed().isEmpty()) continue;
+        const qreal left = metrics.tightBoundingRect(line).left();
+        ink_left = have_left ? std::min(ink_left, left) : left;
+        have_left = true;
+    }
+    if (!have_left) ink_left = 0.0;
+
+    // render_note_text insets the text by 5 window pixels on each side.
+    *out_top = static_cast<float>((ink_top + 5.0) / zoom);
+    *out_left = static_cast<float>((ink_left + 5.0) / zoom);
+}
+
 void MainWidget::handle_bookmark_move() {
     AbsoluteDocumentPos current_mouse_abspos = get_cursor_abspos();
 
@@ -9781,13 +9826,16 @@ void MainWidget::handle_bookmark_move() {
         // keeps the text on the same spot on the page whichever handle is used.
         // Clamped at zero: once the edge catches up with the text, the text has
         // to move rather than spill outside the box.
+        float ink_top = 0.0f;
+        float ink_left = 0.0f;
+        note_text_ink_inset(bookmark, &ink_top, &ink_left);
         if (edges & 1) {
             const float moved = bookmark.begin_x - bookmark_move_data->initial_begin_position.x;
-            bookmark.text_offset_x = std::max(0.0f, bookmark_move_data->initial_text_offset_x - moved);
+            bookmark.text_offset_x = std::max(-ink_left, bookmark_move_data->initial_text_offset_x - moved);
         }
         if (edges & 4) {
             const float moved = bookmark.begin_y - bookmark_move_data->initial_begin_position.y;
-            bookmark.text_offset_y = std::max(0.0f, bookmark_move_data->initial_text_offset_y - moved);
+            bookmark.text_offset_y = std::max(-ink_top, bookmark_move_data->initial_text_offset_y - moved);
         }
         if (bookmark.arrows.size() == bookmark_move_data->initial_arrows.size()) {
             BookMark original = bookmark;

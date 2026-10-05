@@ -547,6 +547,7 @@ public:
     void begin_note_arrow();
     void delete_selected_note_arrow();
     int note_arrow_handle_at(WindowPos pos, int* out_arrow_index = nullptr);
+    void note_text_ink_inset(const BookMark& bookmark, float* out_top, float* out_left);
     int note_arrow_tip_at(WindowPos pos);
     void move_note_arrow_handle(AbsoluteDocumentPos pos);
     void change_selected_highlight_text_annot(const std::wstring& new_text);
