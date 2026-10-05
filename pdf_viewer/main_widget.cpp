@@ -9420,7 +9420,12 @@ void MainWidget::update_freetext_editor_geometry() {
     if (!freetext_editor || !freetext_editor->isVisible() || !doc() || selected_bookmark_index < 0 || selected_bookmark_index >= doc()->get_bookmarks().size()) return;
     const BookMark& bookmark = doc()->get_bookmarks()[selected_bookmark_index];
     WindowRect rect = bookmark.get_rectangle().to_window(main_document_view);
-    freetext_editor->setGeometry(rect.x0, rect.y0, std::max(32, rect.x1 - rect.x0), std::max(24, rect.y1 - rect.y0));
+    // Follow the text offset, so what you type sits where it will be drawn.
+    const float zoom = main_document_view->get_zoom_level();
+    const int offset_x = static_cast<int>(bookmark.text_offset_x * zoom);
+    const int offset_y = static_cast<int>(bookmark.text_offset_y * zoom);
+    freetext_editor->setGeometry(rect.x0 + offset_x, rect.y0 + offset_y,
+        std::max(32, rect.x1 - rect.x0 - offset_x), std::max(24, rect.y1 - rect.y0 - offset_y));
     QFont font = text_command_line_edit->font();
     const std::wstring& family = bookmark.font_face.empty() ? FREETEXT_BOOKMARK_FONT_FACE : bookmark.font_face;
     if (!family.empty()) font.setFamily(QString::fromStdWString(family));
@@ -9730,6 +9735,21 @@ void MainWidget::handle_bookmark_move() {
         if (edges & 2) bookmark.end_x = std::max(bookmark_move_data->initial_end_position.x + diff_x, bookmark.begin_x + min_size);
         if (edges & 4) bookmark.begin_y = std::max(0.0f, std::min(bookmark_move_data->initial_begin_position.y + diff_y, bookmark.end_y - min_size));
         if (edges & 8) bookmark.end_y = std::max(bookmark_move_data->initial_end_position.y + diff_y, bookmark.begin_y + min_size);
+
+        // Text is laid out from the top-left of the box, so moving those two
+        // edges would drag the text along while the bottom and right edges left
+        // it alone. Absorb their travel into the text offset instead, which
+        // keeps the text on the same spot on the page whichever handle is used.
+        // Clamped at zero: once the edge catches up with the text, the text has
+        // to move rather than spill outside the box.
+        if (edges & 1) {
+            const float moved = bookmark.begin_x - bookmark_move_data->initial_begin_position.x;
+            bookmark.text_offset_x = std::max(0.0f, bookmark_move_data->initial_text_offset_x - moved);
+        }
+        if (edges & 4) {
+            const float moved = bookmark.begin_y - bookmark_move_data->initial_begin_position.y;
+            bookmark.text_offset_y = std::max(0.0f, bookmark_move_data->initial_text_offset_y - moved);
+        }
         if (bookmark_move_data->initial_arrow && bookmark.arrow) {
             BookMark original = bookmark;
             original.begin_x = bookmark_move_data->initial_begin_position.x;
@@ -9799,6 +9819,8 @@ void MainWidget::begin_bookmark_move(int index, AbsoluteDocumentPos begin_cursor
     move_data.initial_begin_position.y = doc()->get_bookmarks()[index].begin_y;
     move_data.initial_end_position.x = doc()->get_bookmarks()[index].end_x;
     move_data.initial_end_position.y = doc()->get_bookmarks()[index].end_y;
+    move_data.initial_text_offset_x = doc()->get_bookmarks()[index].text_offset_x;
+    move_data.initial_text_offset_y = doc()->get_bookmarks()[index].text_offset_y;
 
     move_data.initial_mouse_position = begin_cursor_pos;
     move_data.initial_arrow = bookmark.arrow;

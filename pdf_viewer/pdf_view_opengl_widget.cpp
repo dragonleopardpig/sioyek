@@ -2445,9 +2445,14 @@ void PdfViewOpenGLWidget::my_render(QPainter* painter) {
                             painter->restore();
                         }
                         painter->setPen(convert_float3_to_qcolor(&bookmark_color[0]));
+                        // text_offset_* holds the text still while the top or
+                        // left edge is dragged; see BookMark.
+                        const float text_zoom = document_view->get_zoom_level();
+                        const int text_dx = static_cast<int>(bookmarks[i].text_offset_x * text_zoom);
+                        const int text_dy = static_cast<int>(bookmarks[i].text_offset_y * text_zoom);
                         render_note_text(
                             painter,
-                            window_qrect.adjusted(5, 5, -5, -5),
+                            window_qrect.adjusted(5 + text_dx, 5 + text_dy, -5, -5),
                             flags,
                             QString::fromStdWString(bookmarks[i].description));
                         if (i == selected_bookmark_index) {

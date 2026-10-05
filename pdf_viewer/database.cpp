@@ -310,6 +310,8 @@ static int bookmark_select_callback(void* res_vector, int argc, char** argv, cha
     bm.font_face = font_face;
     if (argv[14]) bm.arrow = note_arrow_from_db_string(QString::fromUtf8(argv[14]));
     if (argv[15]) bm.border_width = atof(argv[15]);
+    if (argv[16]) bm.text_offset_x = atof(argv[16]);
+    if (argv[17]) bm.text_offset_y = atof(argv[17]);
 
     res->push_back(bm);
     return 0;
@@ -587,6 +589,8 @@ bool DatabaseManager::create_bookmarks_table() {
         "font_face TEXT,"\
         "arrow_json TEXT,"\
         "border_width REAL DEFAULT 2.0,"\
+        "text_offset_x REAL DEFAULT 0,"\
+        "text_offset_y REAL DEFAULT 0,"\
         "begin_x real DEFAULT -1,"\
         "begin_y real DEFAULT -1,"\
         "end_x real DEFAULT -1,"\
@@ -812,7 +816,7 @@ bool DatabaseManager::insert_bookmark_freetext(const std::string& document_path,
     std::lock_guard<std::recursive_mutex> lock(db_mutex);
 
     std::wstringstream ss;
-    ss << "INSERT INTO bookmarks (document_path, desc, begin_x, begin_y, end_x, end_y, color_red, color_green, color_blue, font_size, font_face, arrow_json, border_width, uuid, creation_time, modification_time) VALUES ('"
+    ss << "INSERT INTO bookmarks (document_path, desc, begin_x, begin_y, end_x, end_y, color_red, color_green, color_blue, font_size, font_face, arrow_json, border_width, text_offset_x, text_offset_y, uuid, creation_time, modification_time) VALUES ('"
         << esc(document_path) << "', '"
         << esc(bm.description) << "', "
         << bm.begin_x << " , "
@@ -825,7 +829,9 @@ bool DatabaseManager::insert_bookmark_freetext(const std::string& document_path,
         << bm.font_size << ", '"
         << esc(bm.font_face) << "', '"
         << esc(note_arrow_to_db_string(bm.arrow).toStdWString()) << "', "
-        << bm.border_width << ", '"
+        << bm.border_width << ", "
+        << bm.text_offset_x << ", "
+        << bm.text_offset_y << ", '"
         << esc(bm.uuid) << "', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);";
     char* error_message = nullptr;
 
@@ -1143,7 +1149,7 @@ bool DatabaseManager::select_global_mark(char symbol, std::vector<std::pair<std:
 bool DatabaseManager::select_bookmark(const std::string& book_path, std::vector<BookMark>& out_result) {
     std::lock_guard<std::recursive_mutex> lock(db_mutex);
     std::wstringstream ss;
-    ss << "select desc, offset_y, begin_x, begin_y, end_x, end_y, color_red, color_green, color_blue, font_size, font_face, uuid, creation_time, modification_time, arrow_json, border_width from bookmarks where document_path='" << esc(book_path) << "';";
+    ss << "select desc, offset_y, begin_x, begin_y, end_x, end_y, color_red, color_green, color_blue, font_size, font_face, uuid, creation_time, modification_time, arrow_json, border_width, text_offset_x, text_offset_y from bookmarks where document_path='" << esc(book_path) << "';";
 
     char* error_message = nullptr;
     int error_code = sqlite3_exec(global_db, utf8_encode(ss.str()).c_str(), bookmark_select_callback, &out_result, &error_message);
@@ -1745,14 +1751,20 @@ void DatabaseManager::ensure_schema_compatibility() {
     if (sqlite3_prepare_v2(global_db, "PRAGMA table_info(bookmarks);", -1, &columns, nullptr) == SQLITE_OK) {
         bool has_arrow_column = false;
         bool has_border_width_column = false;
+        bool has_text_offset_columns = false;
         while (sqlite3_step(columns) == SQLITE_ROW) {
             const unsigned char* name = sqlite3_column_text(columns, 1);
             if (name && std::string(reinterpret_cast<const char*>(name)) == "arrow_json") has_arrow_column = true;
             if (name && std::string(reinterpret_cast<const char*>(name)) == "border_width") has_border_width_column = true;
+            if (name && std::string(reinterpret_cast<const char*>(name)) == "text_offset_y") has_text_offset_columns = true;
         }
         sqlite3_finalize(columns);
         if (!has_arrow_column) run_schema_query("ALTER TABLE bookmarks ADD COLUMN arrow_json TEXT;");
         if (!has_border_width_column) run_schema_query("ALTER TABLE bookmarks ADD COLUMN border_width REAL DEFAULT 2.0;");
+        if (!has_text_offset_columns) {
+            run_schema_query("ALTER TABLE bookmarks ADD COLUMN text_offset_x REAL DEFAULT 0;");
+            run_schema_query("ALTER TABLE bookmarks ADD COLUMN text_offset_y REAL DEFAULT 0;");
+        }
     }
 }
 

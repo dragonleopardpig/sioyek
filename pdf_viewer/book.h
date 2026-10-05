@@ -121,6 +121,13 @@ struct BookMark : Annotation {
     float color[3] = { 0 };
     float font_size = -1;
     float border_width = 2.0f;
+    // How far the text sits inside the box, measured from its top-left. Text is
+    // laid out from the box corner, so dragging the top or left edge would carry
+    // the text along with it while dragging the bottom or right edge left it
+    // alone. Resizing now adds the edge's travel here instead, so the text keeps
+    // its place on the page whichever handle is used.
+    float text_offset_x = 0.0f;
+    float text_offset_y = 0.0f;
     std::wstring font_face;
     std::optional<NoteArrow> arrow;
 

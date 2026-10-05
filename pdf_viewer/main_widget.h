@@ -102,6 +102,9 @@ struct BookmarkMoveData {
     AbsoluteDocumentPos initial_begin_position;
     AbsoluteDocumentPos initial_end_position;
     AbsoluteDocumentPos initial_mouse_position;
+    // Where the text sat when the drag began, so a resize can hold it in place.
+    float initial_text_offset_x = 0.0f;
+    float initial_text_offset_y = 0.0f;
     std::optional<NoteArrow> initial_arrow;
 };
 
