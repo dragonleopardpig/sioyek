@@ -32,6 +32,10 @@ readable by an unpatched Sioyek.
   position rather than a mode and nothing extra is stored.
 - Note colours taken from the existing `a`–`z` highlight palette.
 - Cut, copy, and paste for notes. Paste creates a new note at the pointer.
+- `undo_delete_annotation` puts back the note deleted most recently, with its
+  text, colour, size, border, text offset and arrows. Sioyek binds nothing to
+  Ctrl+Z and has no undo for annotations -- only freehand strokes and marked
+  data have one -- so deleting a note was previously final.
 
 **LaTeX in notes**
 

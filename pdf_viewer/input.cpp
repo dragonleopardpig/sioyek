@@ -3716,6 +3716,15 @@ public:
     void perform() override { widget->begin_note_arrow(); }
 };
 
+class UndoDeleteAnnotationCommand : public Command {
+public:
+    static inline const std::string cname = "undo_delete_annotation";
+    static inline const std::string hname = "Restore the most recently deleted note";
+    UndoDeleteAnnotationCommand(MainWidget* w) : Command(cname, w) {};
+    void perform() override { widget->undo_delete_annotation(); }
+    bool requires_document() { return true; }
+};
+
 class ToggleNoteArrowStraightCommand : public Command {
 public:
     static inline const std::string cname = "toggle_note_arrow_straight";
@@ -7428,6 +7437,7 @@ CommandManager::CommandManager(ConfigManager* config_manager) {
     register_command<DeleteSelectedBookmarkCommand>();
     register_command<ChangeSelectedBookmarkColorCommand>();
     register_command<AddNoteArrowCommand>();
+    register_command<UndoDeleteAnnotationCommand>();
     register_command<ToggleNoteArrowStraightCommand>();
     register_command<FitNoteToTextCommand>();
     register_command<DeleteNoteArrowCommand>();

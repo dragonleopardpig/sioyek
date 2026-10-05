@@ -73,6 +73,7 @@ private:
 
     std::vector<Mark> marks;
     std::vector<BookMark> bookmarks;
+    std::vector<BookMark> deleted_bookmarks;
     std::vector<Highlight> highlights;
     std::vector<Portal> portals;
     DatabaseManager* db_manager = nullptr;
@@ -191,6 +192,10 @@ public:
     std::string add_highlight(const std::wstring& annot, AbsoluteDocumentPos selection_begin, AbsoluteDocumentPos selection_end, char type);
     void delete_highlight_with_index(int index);
     void delete_bookmark_with_index(int index);
+    // Deleting a note was final: nothing restored one, and Ctrl+Z is not bound
+    // to anything. Keep what was removed so it can be put back.
+    bool restore_last_deleted_bookmark();
+    bool has_deleted_bookmark() const;
     void delete_highlight(Highlight hl);
     int get_bookmark_index_at_pos(AbsoluteDocumentPos abspos);
     int get_portal_index_at_pos(AbsoluteDocumentPos abspos);

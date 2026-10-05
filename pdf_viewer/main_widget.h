@@ -556,6 +556,7 @@ public:
     int note_arrow_curve_at(WindowPos pos, int* out_arrow_index = nullptr);
     void toggle_note_arrow_straight(int bookmark_index, int arrow_index);
     void toggle_selected_note_arrow_straight();
+    void undo_delete_annotation();
     int note_arrow_tip_at(WindowPos pos);
     void move_note_arrow_handle(AbsoluteDocumentPos pos);
     void change_selected_highlight_text_annot(const std::wstring& new_text);

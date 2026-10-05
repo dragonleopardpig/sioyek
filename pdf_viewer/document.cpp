@@ -489,7 +489,33 @@ void Document::delete_bookmark_with_index(int index) {
 
     db_manager->delete_bookmark(bookmark_to_delete.uuid);
     bookmarks.erase(bookmarks.begin() + index);
+    // Remember it so restore_last_deleted_bookmark() can put it back. Bounded,
+    // because this is an undo for a slip of the hand, not a history.
+    deleted_bookmarks.push_back(bookmark_to_delete);
+    if (deleted_bookmarks.size() > 32) deleted_bookmarks.erase(deleted_bookmarks.begin());
     is_annotations_dirty = true;
+}
+
+bool Document::has_deleted_bookmark() const {
+    return !deleted_bookmarks.empty();
+}
+
+// Puts back the most recently deleted note, with its text, colour, size,
+// border, text offset and arrows. It takes a new uuid, since the old row is
+// gone from the database.
+bool Document::restore_last_deleted_bookmark() {
+    if (deleted_bookmarks.empty()) return false;
+    BookMark bookmark = deleted_bookmarks.back();
+    bookmark.uuid = new_uuid_utf8();
+    bookmark.update_creation_time();
+
+    if (!db_manager->insert_bookmark_freetext(get_checksum(), bookmark)) return false;
+    deleted_bookmarks.pop_back();
+    bookmarks.push_back(bookmark);
+    // The insert writes arrow_json and the text offsets along with everything
+    // else, so there is nothing further to restore.
+    is_annotations_dirty = true;
+    return true;
 }
 
 void Document::delete_highlight(Highlight hl) {

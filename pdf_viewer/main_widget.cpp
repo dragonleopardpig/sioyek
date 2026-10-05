@@ -7090,6 +7090,23 @@ void MainWidget::handle_delete_selected_highlight() {
     validate_render();
 }
 
+// Put back the note deleted most recently and select it, so a mis-aimed delete
+// costs nothing. Only notes: highlights and drawings have their own commands.
+void MainWidget::undo_delete_annotation() {
+    if (!doc()) return;
+    if (!doc()->has_deleted_bookmark()) {
+        show_error_message(L"Nothing to restore: no note has been deleted in this document");
+        return;
+    }
+    if (!doc()->restore_last_deleted_bookmark()) {
+        show_error_message(L"Could not restore the note");
+        return;
+    }
+    set_selected_highlight_index(-1);
+    set_selected_bookmark_index(static_cast<int>(doc()->get_bookmarks().size()) - 1);
+    invalidate_render();
+}
+
 void MainWidget::handle_delete_selected_bookmark() {
     bookmark_move_data = {};
     if (selected_bookmark_index != -1) {
