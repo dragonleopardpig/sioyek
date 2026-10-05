@@ -1695,7 +1695,7 @@ void MainWidget::handle_escape() {
     if (placing_note_arrow_index >= 0 || note_arrow_drag) {
         if (note_arrow_drag && doc() && note_arrow_drag->bookmark_index >= 0 &&
             note_arrow_drag->bookmark_index < doc()->get_bookmarks().size()) {
-            doc()->get_bookmarks()[note_arrow_drag->bookmark_index].arrow = note_arrow_drag->original_arrow;
+            doc()->get_bookmarks()[note_arrow_drag->bookmark_index].arrows = note_arrow_drag->original_arrows;
         }
         placing_note_arrow_index = -1;
         note_arrow_drag = {};
@@ -1734,7 +1734,7 @@ void MainWidget::handle_escape() {
         bookmark.begin_y = bookmark_move_data->initial_begin_position.y;
         bookmark.end_x = bookmark_move_data->initial_end_position.x;
         bookmark.end_y = bookmark_move_data->initial_end_position.y;
-        bookmark.arrow = bookmark_move_data->initial_arrow;
+        bookmark.arrows = bookmark_move_data->initial_arrows;
     }
     bookmark_move_data = {};
 
@@ -3216,7 +3216,7 @@ void MainWidget::mouseReleaseEvent(QMouseEvent* mevent) {
         move_note_arrow_handle(get_cursor_abspos());
         int index = note_arrow_drag->bookmark_index;
         if (doc() && index >= 0 && index < doc()->get_bookmarks().size()) {
-            doc()->update_bookmark_arrow(index, doc()->get_bookmarks()[index].arrow);
+            doc()->update_bookmark_arrow(index, doc()->get_bookmarks()[index].arrows);
         }
         note_arrow_drag = {};
         setCursor(Qt::ArrowCursor);
@@ -3417,19 +3417,22 @@ void MainWidget::mousePressEvent(QMouseEvent* mevent) {
     if (!TOUCH_MODE && doc() && mevent->button() == Qt::LeftButton && mevent->modifiers() == Qt::NoModifier) {
         if (placing_note_arrow_index >= 0 && placing_note_arrow_index < doc()->get_bookmarks().size()) {
             int index = placing_note_arrow_index;
-            note_arrow_drag = NoteArrowDragData{index, NoteArrowDragPart::PlacingTip, doc()->get_bookmarks()[index].arrow};
+            note_arrow_drag = NoteArrowDragData{index,
+                static_cast<int>(doc()->get_bookmarks()[index].arrows.size()),
+                NoteArrowDragPart::PlacingTip, doc()->get_bookmarks()[index].arrows};
             placing_note_arrow_index = -1;
             move_note_arrow_handle(WindowPos(mevent->pos()).to_absolute(main_document_view));
             setFocus();
             is_selecting = false;
             return;
         }
-        int handle = note_arrow_handle_at(WindowPos(mevent->pos()));
+        int dragged_arrow = 0;
+        int handle = note_arrow_handle_at(WindowPos(mevent->pos()), &dragged_arrow);
         if (handle) {
             NoteArrowDragPart part = handle == 1 ? NoteArrowDragPart::Tip :
                                      handle == 2 ? NoteArrowDragPart::Control1 : NoteArrowDragPart::Control2;
-            note_arrow_drag = NoteArrowDragData{selected_bookmark_index, part,
-                                                 doc()->get_bookmarks()[selected_bookmark_index].arrow};
+            note_arrow_drag = NoteArrowDragData{selected_bookmark_index, dragged_arrow, part,
+                                                 doc()->get_bookmarks()[selected_bookmark_index].arrows};
             setFocus();
             is_selecting = false;
             return;
@@ -3438,8 +3441,12 @@ void MainWidget::mousePressEvent(QMouseEvent* mevent) {
         if (arrow_index >= 0) {
             set_selected_bookmark_index(arrow_index);
             set_selected_highlight_index(-1);
-            note_arrow_drag = NoteArrowDragData{arrow_index, NoteArrowDragPart::Tip,
-                                                 doc()->get_bookmarks()[arrow_index].arrow};
+            // Selecting the note first lets the handle test say which of its
+            // arrows the tip belongs to.
+            int tip_arrow = 0;
+            note_arrow_handle_at(WindowPos(mevent->pos()), &tip_arrow);
+            note_arrow_drag = NoteArrowDragData{arrow_index, tip_arrow, NoteArrowDragPart::Tip,
+                                                 doc()->get_bookmarks()[arrow_index].arrows};
             setFocus();
             is_selecting = false;
             validate_render();
@@ -9138,23 +9145,41 @@ void MainWidget::begin_note_arrow() {
 void MainWidget::delete_selected_note_arrow() {
     if (!doc() || selected_bookmark_index < 0 || selected_bookmark_index >= doc()->get_bookmarks().size()) return;
     const BookMark& bookmark = doc()->get_bookmarks()[selected_bookmark_index];
-    if (!bookmark.is_freetext() || bookmark.is_box() || !bookmark.arrow) return;
+    if (!bookmark.is_freetext() || bookmark.is_box() || bookmark.arrows.empty()) return;
     placing_note_arrow_index = -1;
     note_arrow_drag = {};
-    doc()->update_bookmark_arrow(selected_bookmark_index, {});
+    // With several arrows on a note, remove the one whose handle is under the
+    // cursor; failing that the newest, so repeating the command peels them off
+    // in the order they were drawn.
+    int target = static_cast<int>(bookmark.arrows.size()) - 1;
+    int hovered = 0;
+    if (note_arrow_handle_at(WindowPos(mapFromGlobal(QCursor::pos())), &hovered)) target = hovered;
+    std::vector<NoteArrow> remaining = bookmark.arrows;
+    if (target >= 0 && target < static_cast<int>(remaining.size())) remaining.erase(remaining.begin() + target);
+    doc()->update_bookmark_arrow(selected_bookmark_index, remaining);
     invalidate_render();
 }
 
-int MainWidget::note_arrow_handle_at(WindowPos pos) {
+// Returns 0 when no handle is under the cursor, otherwise 1..3 for tip,
+// control1 and control2, with the arrow's own index in out_arrow_index. The
+// newest arrow is tested first so a handle dropped on top of an older one
+// belongs to the arrow just drawn.
+int MainWidget::note_arrow_handle_at(WindowPos pos, int* out_arrow_index) {
+    if (out_arrow_index) *out_arrow_index = 0;
     if (!doc() || selected_bookmark_index < 0 || selected_bookmark_index >= doc()->get_bookmarks().size()) return 0;
-    const auto& arrow = doc()->get_bookmarks()[selected_bookmark_index].arrow;
-    if (!arrow) return 0;
-    for (const auto& handle : {std::pair<int, AbsoluteDocumentPos>{1, arrow->tip},
-                               {2, arrow->control1}, {3, arrow->control2}}) {
-        WindowPos window = handle.second.to_window(main_document_view);
-        int dx = pos.x - window.x;
-        int dy = pos.y - window.y;
-        if (dx * dx + dy * dy <= 100) return handle.first;
+    const auto& arrows = doc()->get_bookmarks()[selected_bookmark_index].arrows;
+    for (int i = static_cast<int>(arrows.size()) - 1; i >= 0; --i) {
+        const NoteArrow& arrow = arrows[i];
+        for (const auto& handle : {std::pair<int, AbsoluteDocumentPos>{1, arrow.tip},
+                                   {2, arrow.control1}, {3, arrow.control2}}) {
+            WindowPos window = handle.second.to_window(main_document_view);
+            int dx = pos.x - window.x;
+            int dy = pos.y - window.y;
+            if (dx * dx + dy * dy <= 100) {
+                if (out_arrow_index) *out_arrow_index = i;
+                return handle.first;
+            }
+        }
     }
     return 0;
 }
@@ -9163,11 +9188,13 @@ int MainWidget::note_arrow_tip_at(WindowPos pos) {
     if (!doc()) return -1;
     const auto& bookmarks = doc()->get_bookmarks();
     for (int index = static_cast<int>(bookmarks.size()) - 1; index >= 0; --index) {
-        if (!bookmarks[index].is_freetext() || bookmarks[index].is_box() || !bookmarks[index].arrow) continue;
-        WindowPos tip = bookmarks[index].arrow->tip.to_window(main_document_view);
-        int dx = pos.x - tip.x;
-        int dy = pos.y - tip.y;
-        if (dx * dx + dy * dy <= 100) return index;
+        if (!bookmarks[index].is_freetext() || bookmarks[index].is_box()) continue;
+        for (const NoteArrow& arrow : bookmarks[index].arrows) {
+            WindowPos tip = arrow.tip.to_window(main_document_view);
+            int dx = pos.x - tip.x;
+            int dy = pos.y - tip.y;
+            if (dx * dx + dy * dy <= 100) return index;
+        }
     }
     return -1;
 }
@@ -9178,13 +9205,22 @@ void MainWidget::move_note_arrow_handle(AbsoluteDocumentPos pos) {
     if (index < 0 || index >= doc()->get_bookmarks().size()) return;
     BookMark& bookmark = doc()->get_bookmarks()[index];
     if (note_arrow_drag->part == NoteArrowDragPart::PlacingTip) {
-        bookmark.arrow = default_note_arrow(bookmark, pos);
+        // Placing appends, so pressing the key again adds another arrow rather
+        // than replacing the one already there.
+        if (note_arrow_drag->arrow_index >= static_cast<int>(bookmark.arrows.size())) {
+            bookmark.arrows.push_back(default_note_arrow(bookmark, pos));
+            note_arrow_drag->arrow_index = static_cast<int>(bookmark.arrows.size()) - 1;
+        }
+        else {
+            bookmark.arrows[note_arrow_drag->arrow_index] = default_note_arrow(bookmark, pos);
+        }
     }
-    else if (bookmark.arrow) {
+    else if (note_arrow_drag->arrow_index >= 0 && note_arrow_drag->arrow_index < static_cast<int>(bookmark.arrows.size())) {
+        NoteArrow& arrow = bookmark.arrows[note_arrow_drag->arrow_index];
         switch (note_arrow_drag->part) {
-        case NoteArrowDragPart::Tip: bookmark.arrow->tip = pos; break;
-        case NoteArrowDragPart::Control1: bookmark.arrow->control1 = pos; break;
-        case NoteArrowDragPart::Control2: bookmark.arrow->control2 = pos; break;
+        case NoteArrowDragPart::Tip: arrow.tip = pos; break;
+        case NoteArrowDragPart::Control1: arrow.control1 = pos; break;
+        case NoteArrowDragPart::Control2: arrow.control2 = pos; break;
         case NoteArrowDragPart::PlacingTip: break;
         }
     }
@@ -9695,10 +9731,13 @@ void MainWidget::handle_bookmark_move_finish() {
     }
     BookMark& bm = doc()->get_bookmarks()[bookmark_move_data->index];
     doc()->update_bookmark_position(bookmark_move_data->index, { bm.begin_x, bm.begin_y }, { bm.end_x, bm.end_y });
-    if (bm.arrow && bookmark_move_data->initial_arrow &&
-        (bm.arrow->control1.x != bookmark_move_data->initial_arrow->control1.x ||
-         bm.arrow->control1.y != bookmark_move_data->initial_arrow->control1.y)) {
-        doc()->update_bookmark_arrow(bookmark_move_data->index, bm.arrow);
+    bool arrows_moved = bm.arrows.size() != bookmark_move_data->initial_arrows.size();
+    for (size_t i = 0; !arrows_moved && i < bm.arrows.size(); i++) {
+        arrows_moved = bm.arrows[i].control1.x != bookmark_move_data->initial_arrows[i].control1.x ||
+                       bm.arrows[i].control1.y != bookmark_move_data->initial_arrows[i].control1.y;
+    }
+    if (arrows_moved) {
+        doc()->update_bookmark_arrow(bookmark_move_data->index, bm.arrows);
     }
 }
 
@@ -9750,16 +9789,19 @@ void MainWidget::handle_bookmark_move() {
             const float moved = bookmark.begin_y - bookmark_move_data->initial_begin_position.y;
             bookmark.text_offset_y = std::max(0.0f, bookmark_move_data->initial_text_offset_y - moved);
         }
-        if (bookmark_move_data->initial_arrow && bookmark.arrow) {
+        if (bookmark.arrows.size() == bookmark_move_data->initial_arrows.size()) {
             BookMark original = bookmark;
             original.begin_x = bookmark_move_data->initial_begin_position.x;
             original.begin_y = bookmark_move_data->initial_begin_position.y;
             original.end_x = bookmark_move_data->initial_end_position.x;
             original.end_y = bookmark_move_data->initial_end_position.y;
-            AbsoluteDocumentPos old_anchor = note_arrow_anchor(original, bookmark_move_data->initial_arrow->control1);
-            AbsoluteDocumentPos new_anchor = note_arrow_anchor(bookmark, bookmark_move_data->initial_arrow->control1);
-            bookmark.arrow->control1.x = bookmark_move_data->initial_arrow->control1.x + new_anchor.x - old_anchor.x;
-            bookmark.arrow->control1.y = bookmark_move_data->initial_arrow->control1.y + new_anchor.y - old_anchor.y;
+            for (size_t i = 0; i < bookmark.arrows.size(); i++) {
+                const NoteArrow& initial = bookmark_move_data->initial_arrows[i];
+                AbsoluteDocumentPos old_anchor = note_arrow_anchor(original, initial.control1);
+                AbsoluteDocumentPos new_anchor = note_arrow_anchor(bookmark, initial.control1);
+                bookmark.arrows[i].control1.x = initial.control1.x + new_anchor.x - old_anchor.x;
+                bookmark.arrows[i].control1.y = initial.control1.y + new_anchor.y - old_anchor.y;
+            }
         }
         return;
     }
@@ -9767,9 +9809,11 @@ void MainWidget::handle_bookmark_move() {
     bookmark.begin_x = bookmark_move_data->initial_begin_position.x + diff_x;
     bookmark.begin_y = bookmark_move_data->initial_begin_position.y + diff_y;
 
-    if (bookmark_move_data->initial_arrow && bookmark.arrow) {
-        bookmark.arrow->control1.x = bookmark_move_data->initial_arrow->control1.x + diff_x;
-        bookmark.arrow->control1.y = bookmark_move_data->initial_arrow->control1.y + diff_y;
+    if (bookmark.arrows.size() == bookmark_move_data->initial_arrows.size()) {
+        for (size_t i = 0; i < bookmark.arrows.size(); i++) {
+            bookmark.arrows[i].control1.x = bookmark_move_data->initial_arrows[i].control1.x + diff_x;
+            bookmark.arrows[i].control1.y = bookmark_move_data->initial_arrows[i].control1.y + diff_y;
+        }
     }
 
     if (bookmark.end_y >= 0) {
@@ -9823,7 +9867,7 @@ void MainWidget::begin_bookmark_move(int index, AbsoluteDocumentPos begin_cursor
     move_data.initial_text_offset_y = doc()->get_bookmarks()[index].text_offset_y;
 
     move_data.initial_mouse_position = begin_cursor_pos;
-    move_data.initial_arrow = bookmark.arrow;
+    move_data.initial_arrows = bookmark.arrows;
     bookmark_move_data = move_data;
 }
 

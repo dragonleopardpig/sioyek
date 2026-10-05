@@ -1,3 +1,4 @@
+#include <QJsonArray>
 #include "book.h"
 #include "utils.h"
 #include "document.h"
@@ -27,14 +28,27 @@ std::optional<NoteArrow> NoteArrow::from_json(const QJsonValue& value) {
     return arrow;
 }
 
-QString note_arrow_to_db_string(const std::optional<NoteArrow>& arrow) {
-    if (!arrow) return {};
-    return QString::fromUtf8(QJsonDocument(arrow->to_json()).toJson(QJsonDocument::Compact));
+QString note_arrows_to_db_string(const std::vector<NoteArrow>& arrows) {
+    if (arrows.empty()) return {};
+    QJsonArray array;
+    for (const NoteArrow& arrow : arrows) array.append(arrow.to_json());
+    return QString::fromUtf8(QJsonDocument(array).toJson(QJsonDocument::Compact));
 }
 
-std::optional<NoteArrow> note_arrow_from_db_string(const QString& value) {
-    if (value.isEmpty()) return {};
-    return NoteArrow::from_json(QJsonDocument::fromJson(value.toUtf8()).object());
+std::vector<NoteArrow> note_arrows_from_db_string(const QString& value) {
+    std::vector<NoteArrow> arrows;
+    if (value.isEmpty()) return arrows;
+    const QJsonDocument document = QJsonDocument::fromJson(value.toUtf8());
+    if (document.isArray()) {
+        for (const QJsonValue& entry : document.array()) {
+            if (std::optional<NoteArrow> arrow = NoteArrow::from_json(entry)) arrows.push_back(*arrow);
+        }
+    }
+    else if (std::optional<NoteArrow> arrow = NoteArrow::from_json(document.object())) {
+        // The one-arrow spelling written before notes could carry several.
+        arrows.push_back(*arrow);
+    }
+    return arrows;
 }
 
 void note_box_handles(const BookMark& bookmark, AbsoluteDocumentPos out_handles[NUM_NOTE_BOX_HANDLES]) {
@@ -207,7 +221,13 @@ QJsonObject BookMark::to_json(std::string doc_checksum) const
         res["text_offset_x"] = text_offset_x;
         res["text_offset_y"] = text_offset_y;
         res["font_face"] = QString::fromStdWString(font_face);
-        if (arrow) res["note_arrow"] = arrow->to_json();
+        if (!arrows.empty()) {
+            QJsonArray arrow_array;
+            for (const NoteArrow& a : arrows) arrow_array.append(a.to_json());
+            res["note_arrows"] = arrow_array;
+            // Kept so an export read by an older build still shows one arrow.
+            res["note_arrow"] = arrows.front().to_json();
+        }
     }
 
     add_metadata_to_json(res);
@@ -231,7 +251,7 @@ void BookMark::add_to_tuples(std::vector<std::pair<std::string, QVariant>>& tupl
     tuples.push_back({ "text_offset_x", text_offset_x });
     tuples.push_back({ "text_offset_y", text_offset_y });
     tuples.push_back({ "font_face", QString::fromStdWString(font_face) });
-    tuples.push_back({ "arrow_json", note_arrow_to_db_string(arrow) });
+    tuples.push_back({ "arrow_json", note_arrows_to_db_string(arrows) });
 }
 
 void BookMark::from_json(const QJsonObject& json_object)
@@ -253,7 +273,15 @@ void BookMark::from_json(const QJsonObject& json_object)
         text_offset_y = json_object["text_offset_y"].toDouble(0.0);
         font_face = json_object["font_face"].toString().toStdWString();
     }
-    arrow = NoteArrow::from_json(json_object["note_arrow"]);
+    arrows.clear();
+    if (json_object["note_arrows"].isArray()) {
+        for (const QJsonValue& entry : json_object["note_arrows"].toArray()) {
+            if (std::optional<NoteArrow> a = NoteArrow::from_json(entry)) arrows.push_back(*a);
+        }
+    }
+    else if (std::optional<NoteArrow> a = NoteArrow::from_json(json_object["note_arrow"])) {
+        arrows.push_back(*a);
+    }
 
     load_metadata_from_json(json_object);
 }

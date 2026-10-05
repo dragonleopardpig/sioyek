@@ -308,7 +308,7 @@ static int bookmark_select_callback(void* res_vector, int argc, char** argv, cha
     bm.color[2] = color_blue;
     bm.font_size = font_size;
     bm.font_face = font_face;
-    if (argv[14]) bm.arrow = note_arrow_from_db_string(QString::fromUtf8(argv[14]));
+    if (argv[14]) bm.arrows = note_arrows_from_db_string(QString::fromUtf8(argv[14]));
     if (argv[15]) bm.border_width = atof(argv[15]);
     if (argv[16]) bm.text_offset_x = atof(argv[16]);
     if (argv[17]) bm.text_offset_y = atof(argv[17]);
@@ -828,7 +828,7 @@ bool DatabaseManager::insert_bookmark_freetext(const std::string& document_path,
         << bm.color[2] << ", "
         << bm.font_size << ", '"
         << esc(bm.font_face) << "', '"
-        << esc(note_arrow_to_db_string(bm.arrow).toStdWString()) << "', "
+        << esc(note_arrows_to_db_string(bm.arrows).toStdWString()) << "', "
         << bm.border_width << ", "
         << bm.text_offset_x << ", "
         << bm.text_offset_y << ", '"
@@ -2008,11 +2008,11 @@ bool DatabaseManager::update_bookmark_border_width(const std::string& uuid, floa
         {{"uuid", QString::fromStdString(uuid)}},
         {{"border_width", border_width}, {"modification_time", "CURRENT_TIMESTAMP"}});
 }
-bool DatabaseManager::update_bookmark_arrow(const std::string& uuid, const std::optional<NoteArrow>& arrow) {
+bool DatabaseManager::update_bookmark_arrow(const std::string& uuid, const std::vector<NoteArrow>& arrows) {
     std::lock_guard<std::recursive_mutex> lock(db_mutex);
     return generic_update_run_query("bookmarks",
         {{"uuid", QString::fromStdString(uuid)}},
-        {{"arrow_json", note_arrow_to_db_string(arrow)}, {"modification_time", "CURRENT_TIMESTAMP"}});
+        {{"arrow_json", note_arrows_to_db_string(arrows)}, {"modification_time", "CURRENT_TIMESTAMP"}});
 }
 bool DatabaseManager::update_bookmark_change_position(const std::string& uuid, AbsoluteDocumentPos new_begin, AbsoluteDocumentPos new_end) {
     std::lock_guard<std::recursive_mutex> lock(db_mutex);

@@ -99,8 +99,11 @@ struct NoteArrow {
     static std::optional<NoteArrow> from_json(const QJsonValue& value);
 };
 
-QString note_arrow_to_db_string(const std::optional<NoteArrow>& arrow);
-std::optional<NoteArrow> note_arrow_from_db_string(const QString& value);
+// Serialised as a JSON array. A note used to carry at most one arrow and
+// stored a bare object, so that spelling is still read and becomes a
+// one-element list -- notes made before this keep their arrow.
+QString note_arrows_to_db_string(const std::vector<NoteArrow>& arrows);
+std::vector<NoteArrow> note_arrows_from_db_string(const QString& value);
 // The corners and edge midpoints drawn as a selected note's resize handles.
 constexpr int NUM_NOTE_BOX_HANDLES = 8;
 void note_box_handles(const BookMark& bookmark, AbsoluteDocumentPos out_handles[NUM_NOTE_BOX_HANDLES]);
@@ -129,7 +132,7 @@ struct BookMark : Annotation {
     float text_offset_x = 0.0f;
     float text_offset_y = 0.0f;
     std::wstring font_face;
-    std::optional<NoteArrow> arrow;
+    std::vector<NoteArrow> arrows;
 
     AbsoluteDocumentPos begin_pos();
     AbsoluteDocumentPos end_pos();

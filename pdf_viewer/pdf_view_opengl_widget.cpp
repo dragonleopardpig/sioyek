@@ -2399,8 +2399,7 @@ void PdfViewOpenGLWidget::my_render(QPainter* painter) {
                         }
                     }
                     else {
-                        if (bookmarks[i].arrow) {
-                            const NoteArrow& arrow = *bookmarks[i].arrow;
+                        for (const NoteArrow& arrow : bookmarks[i].arrows) {
                             WindowPos anchor = note_arrow_anchor(bookmarks[i], arrow.control1).to_window(document_view);
                             WindowPos control1 = arrow.control1.to_window(document_view);
                             WindowPos control2 = arrow.control2.to_window(document_view);

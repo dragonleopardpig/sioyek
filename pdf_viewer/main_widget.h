@@ -105,7 +105,7 @@ struct BookmarkMoveData {
     // Where the text sat when the drag began, so a resize can hold it in place.
     float initial_text_offset_x = 0.0f;
     float initial_text_offset_y = 0.0f;
-    std::optional<NoteArrow> initial_arrow;
+    std::vector<NoteArrow> initial_arrows;
 };
 
 // What an overloaded, context sensitive shortcut is currently acting on.
@@ -153,8 +153,10 @@ enum class NoteArrowDragPart { Tip, Control1, Control2, PlacingTip };
 
 struct NoteArrowDragData {
     int bookmark_index;
+    // Which of the note's arrows is being dragged. A note can carry several.
+    int arrow_index = 0;
     NoteArrowDragPart part;
-    std::optional<NoteArrow> original_arrow;
+    std::vector<NoteArrow> original_arrows;
 };
 
 struct FixedVelocityState {
@@ -544,7 +546,7 @@ public:
     void change_selected_bookmark_color(char type);
     void begin_note_arrow();
     void delete_selected_note_arrow();
-    int note_arrow_handle_at(WindowPos pos);
+    int note_arrow_handle_at(WindowPos pos, int* out_arrow_index = nullptr);
     int note_arrow_tip_at(WindowPos pos);
     void move_note_arrow_handle(AbsoluteDocumentPos pos);
     void change_selected_highlight_text_annot(const std::wstring& new_text);

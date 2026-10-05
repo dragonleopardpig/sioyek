@@ -2641,8 +2641,7 @@ void Document::embed_annotations(std::wstring new_file_path) {
 
         // PDF has no curved-arrow annotation, so the cubic is flattened into an
         // ink annotation. Without this the arrow is simply lost on export.
-        if (bookmark.arrow) {
-            const NoteArrow& arrow = bookmark.arrow.value();
+        for (const NoteArrow& arrow : bookmark.arrows) {
             AbsoluteDocumentPos start = note_arrow_anchor(bookmark, arrow.control1);
 
             std::vector<fz_point> arrow_points;
@@ -4170,10 +4169,10 @@ void Document::update_bookmark_border_width(int index, float border_width) {
     }
 }
 
-void Document::update_bookmark_arrow(int index, const std::optional<NoteArrow>& arrow) {
+void Document::update_bookmark_arrow(int index, const std::vector<NoteArrow>& arrows) {
     if (index < 0 || index >= bookmarks.size()) return;
-    if (db_manager->update_bookmark_arrow(bookmarks[index].uuid, arrow)) {
-        bookmarks[index].arrow = arrow;
+    if (db_manager->update_bookmark_arrow(bookmarks[index].uuid, arrows)) {
+        bookmarks[index].arrows = arrows;
         bookmarks[index].update_modification_time();
         is_annotations_dirty = true;
     }
