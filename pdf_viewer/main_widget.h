@@ -533,6 +533,8 @@ public:
     bool eventFilter(QObject* obj, QEvent* event) override;
     void show_freetext_editor();
     void update_freetext_editor_geometry();
+    void grow_freetext_editor_to_fit();
+    void fit_note_to_text();
     void finish_freetext_edit();
     bool finish_freetext_edit_keeping_selection();
     void capture_freetext_edit_appearance();

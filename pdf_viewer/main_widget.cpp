@@ -1036,6 +1036,7 @@ MainWidget::MainWidget(fz_context* mupdf_context,
     QObject::connect(freetext_editor, &QPlainTextEdit::textChanged, this, [this]() {
         if (freetext_editor->isVisible()) {
             handle_command_text_change(freetext_editor->toPlainText());
+            grow_freetext_editor_to_fit();
         }
     });
     command_hints_label = new QLabel(this);
@@ -9452,6 +9453,94 @@ void MainWidget::show_freetext_editor() {
     ui_trace("freetext_editor.shown");
 }
 
+// A note keeps the size it was drawn at, so typing past the bottom scrolled the
+// text out of sight inside the editor -- you could no longer see what you were
+// writing. Grow the box to fit instead. Only ever grows: a box deliberately
+// made large stays large.
+void MainWidget::grow_freetext_editor_to_fit() {
+    if (!freetext_editor || !freetext_editor->isVisible() || !doc()) return;
+    if (selected_bookmark_index < 0 || selected_bookmark_index >= doc()->get_bookmarks().size()) return;
+    BookMark& bookmark = doc()->get_bookmarks()[selected_bookmark_index];
+    if (!bookmark.is_freetext() || bookmark.is_box()) return;
+    const float zoom = main_document_view ? main_document_view->get_zoom_level() : 1.0f;
+    if (zoom <= 0.0f) return;
+
+    // QPlainTextEdit's documentSize() is measured in lines, not pixels, so the
+    // height has to be built from the line count. lineCount() counts the lines
+    // after wrapping, which is what actually has to fit.
+    const QFontMetrics metrics(freetext_editor->font());
+    const int lines = std::max(1, freetext_editor->document()->lineCount());
+    const int needed = static_cast<int>(lines * metrics.lineSpacing()
+        + 2 * freetext_editor->document()->documentMargin()
+        + 2 * freetext_editor->frameWidth());
+    const int have = freetext_editor->height();
+    if (needed <= have) return;
+
+    bookmark.end_y += (needed - have) / zoom;
+    update_freetext_editor_geometry();
+    validate_render();
+}
+
+// Shrink a note to the text it holds. Sizing to the drawn ink rather than the
+// layout box is what lets a single "x" sit in the middle of its own box: a line
+// box is much taller than the glyph, and the resize floor alone cannot close
+// that gap. The text offset is set so the ink starts one margin inside the box,
+// which leaves the glyph centred by construction.
+void MainWidget::fit_note_to_text() {
+    if (!doc() || selected_bookmark_index < 0 || selected_bookmark_index >= doc()->get_bookmarks().size()) return;
+    BookMark& bookmark = doc()->get_bookmarks()[selected_bookmark_index];
+    if (!bookmark.is_freetext() || bookmark.is_box()) return;
+    if (freetext_editor && freetext_editor->isVisible() && !finish_freetext_edit_keeping_selection()) return;
+
+    const QString text = QString::fromStdWString(bookmark.description);
+    if (text.trimmed().isEmpty()) return;
+    const float zoom = main_document_view ? main_document_view->get_zoom_level() : 1.0f;
+    if (zoom <= 0.0f) return;
+
+    QFont font = this->font();
+    const float size = bookmark.font_size == -1 ? FREETEXT_BOOKMARK_FONT_SIZE : bookmark.font_size;
+    font.setPointSizeF(size * zoom * 0.75);
+    const QFontMetricsF metrics(font);
+
+    const QStringList lines = text.split('\n');
+    qreal ink_width = 0.0;
+    qreal ink_left = 0.0;
+    bool have_left = false;
+    for (const QString& line : lines) {
+        if (line.trimmed().isEmpty()) continue;
+        const QRectF tight = metrics.tightBoundingRect(line);
+        ink_width = std::max(ink_width, tight.width());
+        ink_left = have_left ? std::min(ink_left, tight.left()) : tight.left();
+        have_left = true;
+    }
+    if (!have_left) return;
+
+    // Height spans the first line's ink top to the last line's ink bottom.
+    const QRectF first = metrics.tightBoundingRect(lines.front().trimmed().isEmpty() ? QString("X") : lines.front());
+    const qreal ascent_to_ink = metrics.ascent() + first.top();
+    const qreal ink_height = (lines.size() - 1) * metrics.lineSpacing() + first.height();
+
+    const float margin_px = 3.0f;
+    const float width = static_cast<float>((ink_width + 2 * margin_px) / zoom);
+    const float height = static_cast<float>((ink_height + 2 * margin_px) / zoom);
+
+    AbsoluteRect rect = bookmark.get_rectangle();
+    bookmark.begin_x = rect.x0;
+    bookmark.begin_y = rect.y0;
+    bookmark.end_x = rect.x0 + width;
+    bookmark.end_y = rect.y0 + height;
+
+    // render_note_text already insets by 5px, so the offset only has to undo
+    // the ink inset and apply the margin we actually want.
+    bookmark.text_offset_x = static_cast<float>((margin_px - ink_left - 5.0) / zoom);
+    bookmark.text_offset_y = static_cast<float>((margin_px - ascent_to_ink - 5.0) / zoom);
+
+    doc()->update_bookmark_position(selected_bookmark_index,
+        {bookmark.begin_x, bookmark.begin_y}, {bookmark.end_x, bookmark.end_y});
+    update_freetext_editor_geometry();
+    invalidate_render();
+}
+
 void MainWidget::update_freetext_editor_geometry() {
     if (!freetext_editor || !freetext_editor->isVisible() || !doc() || selected_bookmark_index < 0 || selected_bookmark_index >= doc()->get_bookmarks().size()) return;
     const BookMark& bookmark = doc()->get_bookmarks()[selected_bookmark_index];
@@ -9814,7 +9903,10 @@ void MainWidget::handle_bookmark_move() {
 
     int edges = bookmark_move_data->resize_edges;
     if (edges) {
-        const float min_size = 24.0f / main_document_view->get_zoom_level();
+        // Low enough to wrap a single small glyph: at the default font size of
+        // 8 a 24px floor was nearly five times the height of an "x", so a box
+        // could never be brought down to its text.
+        const float min_size = 8.0f / main_document_view->get_zoom_level();
         if (edges & 1) bookmark.begin_x = std::min(bookmark_move_data->initial_begin_position.x + diff_x, bookmark.end_x - min_size);
         if (edges & 2) bookmark.end_x = std::max(bookmark_move_data->initial_end_position.x + diff_x, bookmark.begin_x + min_size);
         if (edges & 4) bookmark.begin_y = std::max(0.0f, std::min(bookmark_move_data->initial_begin_position.y + diff_y, bookmark.end_y - min_size));

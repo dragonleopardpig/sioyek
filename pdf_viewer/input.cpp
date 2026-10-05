@@ -3711,6 +3711,15 @@ public:
     void perform() override { widget->begin_note_arrow(); }
 };
 
+class FitNoteToTextCommand : public Command {
+public:
+    static inline const std::string cname = "fit_note_to_text";
+    static inline const std::string hname = "Shrink the selected note to the text it holds";
+    FitNoteToTextCommand(MainWidget* w) : Command(cname, w) {};
+    void perform() override { widget->fit_note_to_text(); }
+    bool requires_document() { return true; }
+};
+
 class DeleteNoteArrowCommand : public Command {
 public:
     static inline const std::string cname = "delete_note_arrow";
@@ -7405,6 +7414,7 @@ CommandManager::CommandManager(ConfigManager* config_manager) {
     register_command<DeleteSelectedBookmarkCommand>();
     register_command<ChangeSelectedBookmarkColorCommand>();
     register_command<AddNoteArrowCommand>();
+    register_command<FitNoteToTextCommand>();
     register_command<DeleteNoteArrowCommand>();
     register_command<EditSelectedHighlightCommand>();
     register_command<SearchCommand>();
