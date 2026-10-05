@@ -294,8 +294,14 @@ QT_QPA_PLATFORM=offscreen /tmp/check_tooltip_shape .
 ```
 
 It parses every `setToolTip()` in `pdf_viewer/`, measures the widest line with
-Qt's own tooltip font, and exits non-zero over 400px. The offending string
-measured 1183px; the replacement measures 184px across seven lines.
+Qt's own tooltip font, and exits non-zero over 400px.
+
+The branch currently sets no tooltips at all, so it reports none. The note
+editor had one, and narrowing it from 1183px to 184px did **not** fix the
+complaint -- a 207x118 tooltip still appeared a second after the pointer
+settled and vanished when it moved, which is what "a popup that closes itself"
+meant. It was removed instead. Prefer the status bar or `show_keybindings` for
+help that must not surprise anyone.
 
 ## Upstreaming
 
