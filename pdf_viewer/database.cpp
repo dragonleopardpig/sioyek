@@ -238,10 +238,27 @@ static int global_highlight_select_callback(void* res_vector, int argc, char** a
     return 0;
 }
 
+// The column list and the callback's arity have to agree. They sat in two
+// places hundreds of lines apart, and adding a column to one of them aborted
+// the process on the first document that had a bookmark. Derive the count from
+// the list so they cannot drift again.
+static constexpr const char* BOOKMARK_SELECT_COLUMNS =
+    "desc, offset_y, begin_x, begin_y, end_x, end_y, color_red, color_green, color_blue, font_size, font_face, uuid, creation_time, modification_time, arrow_json, border_width, text_offset_x, text_offset_y";
+
+static constexpr int count_select_columns(const char* columns) {
+    int count = 1;
+    for (; *columns; ++columns) {
+        if (*columns == ',') count++;
+    }
+    return count;
+}
+
+static constexpr int BOOKMARK_SELECT_COLUMN_COUNT = count_select_columns(BOOKMARK_SELECT_COLUMNS);
+
 static int bookmark_select_callback(void* res_vector, int argc, char** argv, char** col_name) {
 
     std::vector<BookMark>* res = (std::vector<BookMark>*)res_vector;
-    assert(argc == 16);
+    assert(argc == BOOKMARK_SELECT_COLUMN_COUNT);
 
     std::wstring desc = utf8_decode(argv[0]);
     float offset_y = -1;
@@ -1149,7 +1166,7 @@ bool DatabaseManager::select_global_mark(char symbol, std::vector<std::pair<std:
 bool DatabaseManager::select_bookmark(const std::string& book_path, std::vector<BookMark>& out_result) {
     std::lock_guard<std::recursive_mutex> lock(db_mutex);
     std::wstringstream ss;
-    ss << "select desc, offset_y, begin_x, begin_y, end_x, end_y, color_red, color_green, color_blue, font_size, font_face, uuid, creation_time, modification_time, arrow_json, border_width, text_offset_x, text_offset_y from bookmarks where document_path='" << esc(book_path) << "';";
+    ss << "select " << utf8_decode(BOOKMARK_SELECT_COLUMNS) << " from bookmarks where document_path='" << esc(book_path) << "';";
 
     char* error_message = nullptr;
     int error_code = sqlite3_exec(global_db, utf8_encode(ss.str()).c_str(), bookmark_select_callback, &out_result, &error_message);
