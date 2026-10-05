@@ -9427,8 +9427,11 @@ bool MainWidget::eventFilter(QObject* obj, QEvent* event) {
                 begin_note_arrow();
                 return true;
             }
+            // Text size, not border width: this is the one worth changing
+            // while typing, when the result is in front of you. A bare "+" or
+            // "-" has to stay a character here, so it goes on Ctrl.
             if (key->key() == Qt::Key_Plus || key->key() == Qt::Key_Equal || key->key() == Qt::Key_Minus) {
-                update_selected_bookmark_border_width(key->key() == Qt::Key_Minus ? 1.0f / 1.25f : 1.25f);
+                update_selected_bookmark_font_size(key->key() == Qt::Key_Minus ? 1.0f / 1.1f : 1.1f);
                 return true;
             }
         }

@@ -17,8 +17,13 @@ readable by an unpatched Sioyek.
   shortcut family as highlights.
 - One unified note/rectangle object rather than two parallel representations.
 - Note boxes that can be edited in place, moved, and resized with the mouse.
-- Per-note text colour, background colour, and border width, adjustable from
-  the keyboard.
+- Per-note text colour, background colour, text size and border width, all from
+  the keyboard. `Ctrl` with `+`/`-` sizes the text and works inside the editor,
+  where you can see what you are changing; a bare `+`/`-` on a selected note
+  changes its border width, since the editor needs those keys as characters.
+- `fit_note_to_text` shrinks a box to the text it holds, measured against the
+  drawn ink rather than the line box, so a single character ends up centred.
+- The box grows while you type, so text never scrolls out of sight.
 - Curved arrows attached to a note, whose tail snaps to any of the note's eight
   handles.
 - Note colours taken from the existing `a`–`z` highlight palette.

@@ -3423,11 +3423,15 @@ public:
 class ZoomInCommand : public Command {
 public:
     static inline const std::string cname = "zoom_in";
-    static inline const std::string hname = "Zoom in, or enlarge selected note text";
+    static inline const std::string hname = "Zoom in, or thicken the selected note's border";
     ZoomInCommand(MainWidget* w) : Command(cname, w) {};
     void perform() {
+        // Border width rather than text size: the size is worth changing while
+        // you are typing and can see the result, and the editor swallows a bare
+        // "+" as a character, so that one belongs on Ctrl. This key is left for
+        // the note you have selected but are not editing.
         if (widget->current_context() == UiContext::NoteSelected) {
-            widget->update_selected_bookmark_font_size(1.1f);
+            widget->update_selected_bookmark_border_width(1.25f);
         }
         else {
             widget->main_document_view->zoom_in();
@@ -3532,12 +3536,13 @@ public:
 class ZoomOutCommand : public Command {
 public:
     static inline const std::string cname = "zoom_out";
-    static inline const std::string hname = "Zoom out, or shrink selected note text";
+    static inline const std::string hname = "Zoom out, or thin the selected note's border";
     ZoomOutCommand(MainWidget* w) : Command(cname, w) {};
 
     void perform() {
+        // See ZoomInCommand: the bare key is border width, Ctrl is text size.
         if (widget->current_context() == UiContext::NoteSelected) {
-            widget->update_selected_bookmark_font_size(1.0f / 1.1f);
+            widget->update_selected_bookmark_border_width(1.0f / 1.25f);
         }
         else {
             widget->main_document_view->zoom_out();
