@@ -25,7 +25,11 @@ readable by an unpatched Sioyek.
   drawn ink rather than the line box, so a single character ends up centred.
 - The box grows while you type, so text never scrolls out of sight.
 - Curved arrows attached to a note, whose tail snaps to any of the note's eight
-  handles.
+  handles. A note can carry several; the key that places one adds another each
+  time it is pressed. Double-clicking an arrow straightens it, and double-
+  clicking a straight one curves it again -- a cubic whose controls sit on the
+  chord at a third and two thirds draws as a straight line, so "straight" is a
+  position rather than a mode and nothing extra is stored.
 - Note colours taken from the existing `a`–`z` highlight palette.
 - Cut, copy, and paste for notes. Paste creates a new note at the pointer.
 

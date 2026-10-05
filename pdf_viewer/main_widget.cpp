@@ -3352,6 +3352,90 @@ int MainWidget::update_recent_clicks(AbsoluteDocumentPos mouse_abspos) {
     return recent_clicks.size();
 }
 
+static NoteArrow default_note_arrow(const BookMark& bookmark, AbsoluteDocumentPos tip);
+
+// Which arrow, if any, the cursor is on. The drawn shape is a cubic, so the
+// curve is sampled rather than solved: at a handful of points per arrow this is
+// far cheaper than the hit test it replaces reading the document.
+int MainWidget::note_arrow_curve_at(WindowPos pos, int* out_arrow_index) {
+    if (out_arrow_index) *out_arrow_index = 0;
+    if (!doc()) return -1;
+    const auto& bookmarks = doc()->get_bookmarks();
+    for (int index = static_cast<int>(bookmarks.size()) - 1; index >= 0; --index) {
+        if (!bookmarks[index].is_freetext() || bookmarks[index].is_box()) continue;
+        for (int a = static_cast<int>(bookmarks[index].arrows.size()) - 1; a >= 0; --a) {
+            const NoteArrow& arrow = bookmarks[index].arrows[a];
+            const AbsoluteDocumentPos anchor = note_arrow_anchor(bookmarks[index], arrow.control1);
+            const WindowPos p0 = anchor.to_window(main_document_view);
+            const WindowPos p1 = arrow.control1.to_window(main_document_view);
+            const WindowPos p2 = arrow.control2.to_window(main_document_view);
+            const WindowPos p3 = arrow.tip.to_window(main_document_view);
+            const int steps = 24;
+            for (int i = 0; i <= steps; i++) {
+                const double t = static_cast<double>(i) / steps;
+                const double u = 1.0 - t;
+                const double x = u*u*u*p0.x + 3*u*u*t*p1.x + 3*u*t*t*p2.x + t*t*t*p3.x;
+                const double y = u*u*u*p0.y + 3*u*u*t*p1.y + 3*u*t*t*p2.y + t*t*t*p3.y;
+                const double dx = pos.x - x;
+                const double dy = pos.y - y;
+                if (dx * dx + dy * dy <= 64.0) {
+                    if (out_arrow_index) *out_arrow_index = a;
+                    return index;
+                }
+            }
+        }
+    }
+    return -1;
+}
+
+// Straighten an arrow, or put its curve back if it is already straight. A cubic
+// whose controls sit on the chord at a third and two thirds draws as a straight
+// line, so "straight" is a position rather than a mode and needs nothing stored.
+void MainWidget::toggle_note_arrow_straight(int bookmark_index, int arrow_index) {
+    if (!doc() || bookmark_index < 0 || bookmark_index >= doc()->get_bookmarks().size()) return;
+    BookMark& bookmark = doc()->get_bookmarks()[bookmark_index];
+    if (arrow_index < 0 || arrow_index >= static_cast<int>(bookmark.arrows.size())) return;
+
+    NoteArrow& arrow = bookmark.arrows[arrow_index];
+    const AbsoluteDocumentPos anchor = note_arrow_anchor(bookmark, arrow.control1);
+    const float dx = arrow.tip.x - anchor.x;
+    const float dy = arrow.tip.y - anchor.y;
+    const float length = std::hypot(dx, dy);
+    if (length < 0.001f) return;
+
+    // How far the controls stray from the chord, as a fraction of its length.
+    auto offset_from_chord = [&](const AbsoluteDocumentPos& p) {
+        return std::fabs((-dy * (p.x - anchor.x) + dx * (p.y - anchor.y)) / length);
+    };
+    const bool already_straight =
+        offset_from_chord(arrow.control1) < length * 0.02f &&
+        offset_from_chord(arrow.control2) < length * 0.02f;
+
+    if (already_straight) {
+        const NoteArrow curved = default_note_arrow(bookmark, arrow.tip);
+        arrow.control1 = curved.control1;
+        arrow.control2 = curved.control2;
+    }
+    else {
+        arrow.control1 = { anchor.x + dx / 3.0f, anchor.y + dy / 3.0f };
+        arrow.control2 = { anchor.x + dx * 2.0f / 3.0f, anchor.y + dy * 2.0f / 3.0f };
+    }
+    doc()->update_bookmark_arrow(bookmark_index, bookmark.arrows);
+    invalidate_render();
+}
+
+// Acts on the arrow under the cursor, or the newest on the selected note.
+void MainWidget::toggle_selected_note_arrow_straight() {
+    int arrow_index = 0;
+    int index = note_arrow_curve_at(WindowPos(mapFromGlobal(QCursor::pos())), &arrow_index);
+    if (index < 0) {
+        if (!doc() || selected_bookmark_index < 0 || selected_bookmark_index >= doc()->get_bookmarks().size()) return;
+        index = selected_bookmark_index;
+        arrow_index = static_cast<int>(doc()->get_bookmarks()[index].arrows.size()) - 1;
+    }
+    toggle_note_arrow_straight(index, arrow_index);
+}
+
 void MainWidget::mouseDoubleClickEvent(QMouseEvent* mevent) {
     ui_trace("mouseDoubleClick");
     if (!TOUCH_MODE && doc() && mevent->button() == Qt::LeftButton) {
@@ -3361,6 +3445,16 @@ void MainWidget::mouseDoubleClickEvent(QMouseEvent* mevent) {
             set_selected_highlight_index(-1);
             set_selected_bookmark_index(index);
             handle_command_types(command_manager->get_command_with_name(this, "edit_selected_bookmark"), 0);
+            return;
+        }
+        // Checked after the box, so double-clicking a note still edits its text
+        // where an arrow happens to start at the same edge.
+        int arrow_index = 0;
+        int arrow_owner = note_arrow_curve_at(WindowPos(mevent->pos()), &arrow_index);
+        if (arrow_owner >= 0) {
+            set_selected_highlight_index(-1);
+            set_selected_bookmark_index(arrow_owner);
+            toggle_note_arrow_straight(arrow_owner, arrow_index);
             return;
         }
     }

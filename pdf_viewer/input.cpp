@@ -3716,6 +3716,15 @@ public:
     void perform() override { widget->begin_note_arrow(); }
 };
 
+class ToggleNoteArrowStraightCommand : public Command {
+public:
+    static inline const std::string cname = "toggle_note_arrow_straight";
+    static inline const std::string hname = "Straighten the note arrow under the cursor, or curve it again";
+    ToggleNoteArrowStraightCommand(MainWidget* w) : Command(cname, w) {};
+    void perform() override { widget->toggle_selected_note_arrow_straight(); }
+    bool requires_document() { return true; }
+};
+
 class FitNoteToTextCommand : public Command {
 public:
     static inline const std::string cname = "fit_note_to_text";
@@ -7419,6 +7428,7 @@ CommandManager::CommandManager(ConfigManager* config_manager) {
     register_command<DeleteSelectedBookmarkCommand>();
     register_command<ChangeSelectedBookmarkColorCommand>();
     register_command<AddNoteArrowCommand>();
+    register_command<ToggleNoteArrowStraightCommand>();
     register_command<FitNoteToTextCommand>();
     register_command<DeleteNoteArrowCommand>();
     register_command<EditSelectedHighlightCommand>();
