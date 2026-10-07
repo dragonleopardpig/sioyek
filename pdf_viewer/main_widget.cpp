@@ -9561,7 +9561,12 @@ bool MainWidget::paste_note_from_clipboard() {
     if (!clipboard) return false;
 
     const std::wstring text = clipboard->text().toStdWString();
-    if (text.size() == 0) return false;
+    // An empty note draws as a plain rectangle, which is how a box is put around
+    // something worth finding again. Copying one leaves the clipboard empty, so
+    // insisting on text here refused to paste exactly those notes. A remembered
+    // style is what says a note was copied, and so what makes an empty paste mean
+    // something; with no note copied, an empty clipboard is still nothing to paste.
+    if (text.empty() && !copied_note_style) return false;
 
     // Paste makes a new note where the pointer is, the way pasting works
     // elsewhere, rather than requiring an empty note to be drawn first.
