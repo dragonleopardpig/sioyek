@@ -3716,6 +3716,15 @@ public:
     void perform() override { widget->begin_note_arrow(); }
 };
 
+class AddFreeArrowCommand : public Command {
+public:
+    static inline const std::string cname = "add_free_arrow";
+    static inline const std::string hname = "Draw an arrow with no note attached to it";
+    AddFreeArrowCommand(MainWidget* w) : Command(cname, w) {};
+    void perform() override { widget->begin_free_note_arrow(); }
+    bool requires_document() { return true; }
+};
+
 class UndoDeleteAnnotationCommand : public Command {
 public:
     static inline const std::string cname = "undo_delete_annotation";
@@ -7437,6 +7446,7 @@ CommandManager::CommandManager(ConfigManager* config_manager) {
     register_command<DeleteSelectedBookmarkCommand>();
     register_command<ChangeSelectedBookmarkColorCommand>();
     register_command<AddNoteArrowCommand>();
+    register_command<AddFreeArrowCommand>();
     register_command<UndoDeleteAnnotationCommand>();
     register_command<ToggleNoteArrowStraightCommand>();
     register_command<FitNoteToTextCommand>();

@@ -318,6 +318,9 @@ public:
 
     std::optional<BookmarkMoveData> bookmark_move_data = {};
     int placing_note_arrow_index = -1;
+    // Set while waiting for the press that puts down an arrow with no box:
+    // that press makes the note, so there is no index to wait on yet.
+    bool placing_free_arrow = false;
     std::optional<NoteArrowDragData> note_arrow_drag;
     // Which arrow of the selected note the user last clicked, so a particular
     // one can be deleted. -1 when no arrow has been picked out.
@@ -550,6 +553,7 @@ public:
     void change_selected_bookmark_text(const std::wstring& new_text);
     void change_selected_bookmark_color(char type);
     void begin_note_arrow();
+    void begin_free_note_arrow();
     void delete_selected_note_arrow();
     int note_arrow_handle_at(WindowPos pos, int* out_arrow_index = nullptr);
     void note_text_ink_inset(const BookMark& bookmark, float* out_top, float* out_left);

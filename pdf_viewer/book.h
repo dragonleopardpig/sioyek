@@ -144,6 +144,9 @@ struct BookMark : Annotation {
 
     bool is_freetext() const;
     bool is_box() const;
+    // An arrow standing on its own, with no box: the note's rectangle has
+    // collapsed onto the point the arrow grows from.
+    bool is_free_arrow() const;
     bool is_marked() const;
     std::optional<char> get_type() const;
 

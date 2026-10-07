@@ -306,6 +306,16 @@ bool BookMark::is_box() const {
     return false;
 }
 
+// A note with no text whose rectangle has collapsed to a point is an arrow on
+// its own: nothing is drawn for the box, and the point serves as the arrow's
+// tail, since note_arrow_anchor() hands back the rectangle itself once every
+// handle sits on top of the centre. The resize floor keeps a real note well
+// clear of this, so there is no way to reach it by dragging a box smaller.
+bool BookMark::is_free_arrow() const {
+    return is_freetext() && !is_box() && description.empty() &&
+        std::abs(end_x - begin_x) < 0.01f && std::abs(end_y - begin_y) < 0.01f;
+}
+
 bool BookMark::is_marked() const {
     return (begin_y > -1) && (end_y == -1);
 }

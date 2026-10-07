@@ -2358,7 +2358,10 @@ void PdfViewOpenGLWidget::my_render(QPainter* painter) {
 
                     std::array<float, 3> bookmark_color = cc3(bookmarks[i].color);
                     painter->setPen(convert_float3_to_qcolor(&bookmark_color[0]));
-                    if (!bookmarks[i].is_box() && (RENDER_FREETEXT_BORDERS || bookmarks[i].description.empty())) {
+                    // An empty note is still drawn as a rectangle so it can be
+                    // found, but a free arrow is meant to have no box at all.
+                    if (!bookmarks[i].is_box() && !bookmarks[i].is_free_arrow() &&
+                        (RENDER_FREETEXT_BORDERS || bookmarks[i].description.empty())) {
                         painter->save();
                         painter->setRenderHint(QPainter::Antialiasing, true);
                         painter->setPen(QPen(convert_float3_to_qcolor(&bookmark_color[0]),
@@ -2463,7 +2466,9 @@ void PdfViewOpenGLWidget::my_render(QPainter* painter) {
                             window_qrect.adjusted(5 + text_dx, 5 + text_dy, -5, -5),
                             flags,
                             QString::fromStdWString(bookmarks[i].description));
-                        if (i == selected_bookmark_index) {
+                        // The box handles belong to a box; a selected free arrow
+                        // shows only the handles on the arrow itself.
+                        if (i == selected_bookmark_index && !bookmarks[i].is_free_arrow()) {
                             painter->setPen(QColor(55, 122, 196));
                             for (int x : {window_qrect.left(), window_qrect.center().x(), window_qrect.right()}) {
                                 for (int y : {window_qrect.top(), window_qrect.center().y(), window_qrect.bottom()}) {

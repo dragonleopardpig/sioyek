@@ -774,7 +774,8 @@ void MainWidget::mouseMoveEvent(QMouseEvent* mouse_event) {
 
     if (!TOUCH_MODE && doc() && !pending_command_instance && !is_selecting &&
         !opengl_widget->is_window_point_in_overview(normal_mpos)) {
-        if (placing_note_arrow_index >= 0 || note_arrow_handle_at(mpos) || note_arrow_tip_at(mpos) >= 0) {
+        if (placing_note_arrow_index >= 0 || placing_free_arrow ||
+            note_arrow_handle_at(mpos) || note_arrow_tip_at(mpos) >= 0) {
             setCursor(Qt::CrossCursor);
             return;
         }
@@ -1693,12 +1694,21 @@ std::wstring MainWidget::get_status_string(bool is_right) {
 void MainWidget::handle_escape() {
     ui_trace("handle_escape");
 
-    if (placing_note_arrow_index >= 0 || note_arrow_drag) {
+    if (placing_note_arrow_index >= 0 || placing_free_arrow || note_arrow_drag) {
         if (note_arrow_drag && doc() && note_arrow_drag->bookmark_index >= 0 &&
             note_arrow_drag->bookmark_index < doc()->get_bookmarks().size()) {
-            doc()->get_bookmarks()[note_arrow_drag->bookmark_index].arrows = note_arrow_drag->original_arrows;
+            const int cancelled = note_arrow_drag->bookmark_index;
+            doc()->get_bookmarks()[cancelled].arrows = note_arrow_drag->original_arrows;
+            // Cancelling the arrow that brought a boxless note into being takes
+            // the note with it, rather than leaving a collapsed box nothing draws.
+            if (doc()->get_bookmarks()[cancelled].is_free_arrow() &&
+                doc()->get_bookmarks()[cancelled].arrows.empty()) {
+                set_selected_bookmark_index(-1);
+                doc()->delete_bookmark(cancelled);
+            }
         }
         placing_note_arrow_index = -1;
+        placing_free_arrow = false;
         note_arrow_drag = {};
         setCursor(Qt::ArrowCursor);
         invalidate_render();
@@ -2170,6 +2180,7 @@ void MainWidget::open_document(const std::wstring& path, std::optional<float> of
     finish_freetext_edit();
     bookmark_move_data = {};
     placing_note_arrow_index = -1;
+    placing_free_arrow = false;
     note_arrow_drag = {};
     opengl_widget->clear_all_selections();
 
@@ -3216,6 +3227,26 @@ void MainWidget::mouseReleaseEvent(QMouseEvent* mevent) {
     if (note_arrow_drag && mevent->button() == Qt::LeftButton) {
         move_note_arrow_handle(get_cursor_abspos());
         int index = note_arrow_drag->bookmark_index;
+        // A free arrow that never left its tail draws nothing and could not be
+        // clicked again, so a stray press leaves no note behind.
+        if (doc() && index >= 0 && index < doc()->get_bookmarks().size()) {
+            const BookMark& placed = doc()->get_bookmarks()[index];
+            bool is_stray = placed.is_free_arrow() && placed.arrows.size() <= 1;
+            if (is_stray && !placed.arrows.empty()) {
+                const AbsoluteDocumentPos tail = note_arrow_anchor(placed, placed.arrows[0].tip);
+                is_stray = std::hypot(placed.arrows[0].tip.x - tail.x,
+                                      placed.arrows[0].tip.y - tail.y) < 6.0f;
+            }
+            if (is_stray) {
+                note_arrow_drag = {};
+                set_selected_bookmark_index(-1);
+                doc()->delete_bookmark(index);
+                setCursor(Qt::ArrowCursor);
+                is_selecting = false;
+                invalidate_render();
+                return;
+            }
+        }
         if (doc() && index >= 0 && index < doc()->get_bookmarks().size()) {
             doc()->update_bookmark_arrow(index, doc()->get_bookmarks()[index].arrows);
         }
@@ -3510,6 +3541,32 @@ void MainWidget::mousePressEvent(QMouseEvent* mevent) {
     bool is_alt_pressed = QGuiApplication::keyboardModifiers().testFlag(Qt::KeyboardModifier::AltModifier);
 
     if (!TOUCH_MODE && doc() && mevent->button() == Qt::LeftButton && mevent->modifiers() == Qt::NoModifier) {
+        if (placing_free_arrow) {
+            placing_free_arrow = false;
+            // This press makes the note: an empty one whose rectangle is the
+            // single point the arrow grows from. A free arrow is therefore an
+            // ordinary note, and travels the same selection, drag, delete, undo
+            // and export paths as one attached to a box.
+            AbsoluteDocumentPos tail = WindowPos(mevent->pos()).to_absolute(main_document_view);
+            AbsoluteRect tail_rect;
+            tail_rect.x0 = tail_rect.x1 = tail.x;
+            tail_rect.y0 = tail_rect.y1 = std::max(0.0f, tail.y);
+            float arrow_color[3] = { FREETEXT_BOOKMARK_COLOR[0], FREETEXT_BOOKMARK_COLOR[1], FREETEXT_BOOKMARK_COLOR[2] };
+            if (copied_note_style) {
+                for (int i = 0; i < 3; i++) arrow_color[i] = copied_note_style->color[i];
+            }
+            doc()->add_freetext_bookmark_with_color(L"", tail_rect, arrow_color, -1);
+            int free_index = static_cast<int>(doc()->get_bookmarks().size()) - 1;
+            if (free_index < 0) return;
+            set_selected_highlight_index(-1);
+            set_selected_bookmark_index(free_index);
+            note_arrow_drag = NoteArrowDragData{free_index, 0, NoteArrowDragPart::PlacingTip,
+                doc()->get_bookmarks()[free_index].arrows};
+            move_note_arrow_handle(tail_rect.top_left());
+            setFocus();
+            is_selecting = false;
+            return;
+        }
         if (placing_note_arrow_index >= 0 && placing_note_arrow_index < doc()->get_bookmarks().size()) {
             int index = placing_note_arrow_index;
             note_arrow_drag = NoteArrowDragData{index,
@@ -9265,11 +9322,29 @@ static NoteArrow default_note_arrow(const BookMark& bookmark, AbsoluteDocumentPo
 }
 
 void MainWidget::begin_note_arrow() {
-    if (!doc() || selected_bookmark_index < 0 || selected_bookmark_index >= doc()->get_bookmarks().size()) return;
-    const BookMark& bookmark = doc()->get_bookmarks()[selected_bookmark_index];
-    if (!bookmark.is_freetext() || bookmark.is_box()) return;
+    if (!doc()) return;
+    const bool has_note = selected_bookmark_index >= 0 &&
+        selected_bookmark_index < doc()->get_bookmarks().size() &&
+        doc()->get_bookmarks()[selected_bookmark_index].is_freetext() &&
+        !doc()->get_bookmarks()[selected_bookmark_index].is_box();
+    // With no note to attach to, draw an arrow that stands on its own, so the
+    // one key points at something whether or not a note is selected.
+    if (!has_note) {
+        begin_free_note_arrow();
+        return;
+    }
     if (freetext_editor && freetext_editor->isVisible() && !finish_freetext_edit_keeping_selection()) return;
     placing_note_arrow_index = selected_bookmark_index;
+    setCursor(Qt::CrossCursor);
+}
+
+// An arrow with no box. The press that follows makes the note, so unlike
+// begin_note_arrow() there is no index to remember here.
+void MainWidget::begin_free_note_arrow() {
+    if (!doc()) return;
+    if (freetext_editor && freetext_editor->isVisible() && !finish_freetext_edit_keeping_selection()) return;
+    placing_note_arrow_index = -1;
+    placing_free_arrow = true;
     setCursor(Qt::CrossCursor);
 }
 
@@ -9294,6 +9369,17 @@ void MainWidget::delete_selected_note_arrow() {
     else if (note_arrow_curve_at(cursor, &hovered) == selected_bookmark_index) target = hovered;
     std::vector<NoteArrow> remaining = bookmark.arrows;
     if (target >= 0 && target < static_cast<int>(remaining.size())) remaining.erase(remaining.begin() + target);
+    // The last arrow of a boxless note takes the note with it: a collapsed box
+    // on its own draws nothing. Deleting the note rather than the arrow also
+    // means undo brings the arrow back.
+    if (bookmark.is_free_arrow() && remaining.empty()) {
+        const int emptied = selected_bookmark_index;
+        selected_note_arrow_index = -1;
+        set_selected_bookmark_index(-1);
+        doc()->delete_bookmark_with_index(emptied);
+        invalidate_render();
+        return;
+    }
     selected_note_arrow_index = -1;
     opengl_widget->set_selected_note_arrow_index(selected_note_arrow_index);
     doc()->update_bookmark_arrow(selected_bookmark_index, remaining);
@@ -9517,7 +9603,7 @@ bool MainWidget::paste_note_from_clipboard() {
 }
 
 UiContext MainWidget::current_context() {
-    if (placing_note_arrow_index >= 0 || note_arrow_drag) {
+    if (placing_note_arrow_index >= 0 || placing_free_arrow || note_arrow_drag) {
         return UiContext::PlacingNoteArrow;
     }
     if (has_selected_freetext_note()) {
@@ -9631,7 +9717,7 @@ void MainWidget::grow_freetext_editor_to_fit() {
 void MainWidget::fit_note_to_text() {
     if (!doc() || selected_bookmark_index < 0 || selected_bookmark_index >= doc()->get_bookmarks().size()) return;
     BookMark& bookmark = doc()->get_bookmarks()[selected_bookmark_index];
-    if (!bookmark.is_freetext() || bookmark.is_box()) return;
+    if (!bookmark.is_freetext() || bookmark.is_box() || bookmark.is_free_arrow()) return;
     if (freetext_editor && freetext_editor->isVisible() && !finish_freetext_edit_keeping_selection()) return;
 
     const QString text = QString::fromStdWString(bookmark.description);
@@ -9802,6 +9888,9 @@ int MainWidget::freetext_resize_edges_at(WindowPos pos) {
     if (!doc() || selected_bookmark_index < 0 || selected_bookmark_index >= doc()->get_bookmarks().size()) return 0;
     const BookMark& bookmark = doc()->get_bookmarks()[selected_bookmark_index];
     if (!bookmark.is_freetext() || bookmark.is_box()) return 0;
+    // A boxless arrow has no edges to grab; without this a drag near its tail
+    // would pull the collapsed rectangle open into a visible box.
+    if (bookmark.is_free_arrow()) return 0;
     WindowRect rect = bookmark.get_rectangle().to_window(main_document_view);
     const int margin = 7;
     if (pos.x < rect.x0 - margin || pos.x > rect.x1 + margin || pos.y < rect.y0 - margin || pos.y > rect.y1 + margin) return 0;

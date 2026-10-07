@@ -2601,8 +2601,12 @@ void Document::embed_annotations(std::wstring new_file_path) {
 
         fz_page* page = load_cached_page(page_number);
         pdf_page* pdf_page = pdf_page_from_fz_page(context, page);
-        pdf_annot* bookmark_annot;
-        if (bookmark.is_freetext() && (!bookmark.is_box())) {
+        pdf_annot* bookmark_annot = nullptr;
+        if (bookmark.is_free_arrow()) {
+            // Nothing to export for a box that has collapsed to a point; only
+            // the ink arrow below carries any of this note's geometry.
+        }
+        else if (bookmark.is_freetext() && (!bookmark.is_box())) {
             if (bookmark.description.empty()) {
                 // An empty note is drawn as a rectangle, and a FreeText annotation
                 // with no contents has no visible geometry in other viewers, so
@@ -2630,40 +2634,42 @@ void Document::embed_annotations(std::wstring new_file_path) {
             bookmark_annot = pdf_create_annot(context, pdf_page, PDF_ANNOT_TEXT);
         }
 
-        std::string encoded_bookmark_text = utf8_encode(bookmark.description);
+        if (bookmark_annot) {
+            std::string encoded_bookmark_text = utf8_encode(bookmark.description);
 
-        PagelessDocumentRect annot_rect;
-        if (bookmark.is_freetext()) {
-            annot_rect = bookmark.rect().to_document(this).rect;
+            PagelessDocumentRect annot_rect;
+            if (bookmark.is_freetext()) {
+                annot_rect = bookmark.rect().to_document(this).rect;
 
-            if (!bookmark.description.empty()) {
-                std::string encoded_font_face = utf8_encode(bookmark.font_face);
-                const char* font_face = bookmark.font_face.size() == 0 ? "Times New Roman" : encoded_font_face.c_str();
-                pdf_set_annot_default_appearance(context, bookmark_annot, font_face, bookmark.font_size, 3, bookmark.color);
+                if (!bookmark.description.empty()) {
+                    std::string encoded_font_face = utf8_encode(bookmark.font_face);
+                    const char* font_face = bookmark.font_face.size() == 0 ? "Times New Roman" : encoded_font_face.c_str();
+                    pdf_set_annot_default_appearance(context, bookmark_annot, font_face, bookmark.font_size, 3, bookmark.color);
+                }
+                pdf_set_annot_border(context, bookmark_annot, bookmark.border_width);
             }
-            pdf_set_annot_border(context, bookmark_annot, bookmark.border_width);
-        }
-        else if (bookmark.is_marked()) {
-            //DocumentPos begin_page_pos = absolute_to_page_pos_uncentered({ bookmark.begin_x, bookmark.begin_y });
-            DocumentPos begin_page_pos = bookmark.begin_pos().to_document(this);
+            else if (bookmark.is_marked()) {
+                //DocumentPos begin_page_pos = absolute_to_page_pos_uncentered({ bookmark.begin_x, bookmark.begin_y });
+                DocumentPos begin_page_pos = bookmark.begin_pos().to_document(this);
 
-            annot_rect.x0 = begin_page_pos.x - 6;
-            annot_rect.x1 = begin_page_pos.x + 6;
-            annot_rect.y0 = begin_page_pos.y - 6;
-            annot_rect.y1 = begin_page_pos.y + 6;
-        }
-        else {
-            annot_rect.x0 = 10;
-            annot_rect.x1 = 20;
-            annot_rect.y0 = doc_y;
-            annot_rect.y1 = doc_y + 10;
-        }
+                annot_rect.x0 = begin_page_pos.x - 6;
+                annot_rect.x1 = begin_page_pos.x + 6;
+                annot_rect.y0 = begin_page_pos.y - 6;
+                annot_rect.y1 = begin_page_pos.y + 6;
+            }
+            else {
+                annot_rect.x0 = 10;
+                annot_rect.x1 = 20;
+                annot_rect.y0 = doc_y;
+                annot_rect.y1 = doc_y + 10;
+            }
 
-        pdf_set_annot_rect(context, bookmark_annot, annot_rect);
-        pdf_set_annot_contents(context, bookmark_annot, encoded_bookmark_text.c_str());
-        pdf_update_annot(context, bookmark_annot);
+            pdf_set_annot_rect(context, bookmark_annot, annot_rect);
+            pdf_set_annot_contents(context, bookmark_annot, encoded_bookmark_text.c_str());
+            pdf_update_annot(context, bookmark_annot);
 
-        created_annotations.push_back(std::make_pair(pdf_page, bookmark_annot));
+            created_annotations.push_back(std::make_pair(pdf_page, bookmark_annot));
+        }
 
         // PDF has no curved-arrow annotation, so the cubic is flattened into an
         // ink annotation. Without this the arrow is simply lost on export.
