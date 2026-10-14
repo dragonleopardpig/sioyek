@@ -705,6 +705,7 @@ int main(int argc, char* args[]) {
 #ifdef SIOYEK_ANDROID
     format.setVersion(3, 1);
 #else
+    format.setRenderableType(QSurfaceFormat::OpenGL);
     format.setVersion(3, 3);
 #endif
 

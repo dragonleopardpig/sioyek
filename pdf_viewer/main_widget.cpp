@@ -966,6 +966,7 @@ MainWidget::MainWidget(fz_context* mupdf_context,
     // binary now running.
     ui_trace("startup", QCoreApplication::applicationFilePath().toStdWString());
 
+    setProperty("_kde_no_window_grab", true);
     setMouseTracking(true);
     setAcceptDrops(true);
     setAttribute(Qt::WA_DeleteOnClose);
@@ -973,6 +974,7 @@ MainWidget::MainWidget(fz_context* mupdf_context,
 
 
     central_widget = new QWidget(this);
+    central_widget->setProperty("_kde_no_window_grab", true);
     central_widget->setMouseTracking(true);
 
     inverse_search_command = INVERSE_SEARCH_COMMAND;
@@ -3365,7 +3367,7 @@ void MainWidget::mouseReleaseEvent(QMouseEvent* mevent) {
 }
 
 int MainWidget::update_recent_clicks(AbsoluteDocumentPos mouse_abspos) {
-    QDateTime current_time;
+    QDateTime current_time = QDateTime::currentDateTime();
     recent_clicks.push_back({ current_time, mouse_abspos });
 
     if (recent_clicks.size() > 5) {

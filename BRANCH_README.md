@@ -11,6 +11,16 @@ readable by an unpatched Sioyek.
 
 ## What it adds
 
+**Document mouse interaction**
+
+- Document canvases opt out of theme-driven window dragging. Under Kvantum,
+  dragging to select text previously started moving the window and sent a
+  synthetic mouse release at `(-1, -1)`, producing a large unrelated selection.
+  Main and helper canvases use the `_kde_no_window_grab` property, preserving the
+  theme and normal title-bar dragging. The PDF and its text layer are unchanged.
+- Click counting uses real timestamps, so earlier clicks expire instead of
+  turning a later word selection into an unintended triple-click line selection.
+
 **Annotations**
 
 - Persistent vector rectangle annotations, drawn and deleted with the same

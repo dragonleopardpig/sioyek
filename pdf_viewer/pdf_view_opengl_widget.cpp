@@ -1369,12 +1369,14 @@ PdfViewOpenGLWidget::PdfViewOpenGLWidget(DocumentView* document_view, PdfRendere
     config_manager(config_manager),
     is_helper(is_helper)
 {
+    setProperty("_kde_no_window_grab", true);
     creation_time = QDateTime::currentDateTime();
 
     QSurfaceFormat format;
 #ifdef SIOYEK_ANDROID
     format.setVersion(3, 1);
 #else
+    format.setRenderableType(QSurfaceFormat::OpenGL);
     format.setVersion(3, 3);
 #endif
     //    format.setSwapBehavior(QSurfaceFormat::SwapBehavior::SingleBuffer);
@@ -2051,6 +2053,39 @@ void PdfViewOpenGLWidget::my_render(QPainter* painter) {
         is_helper_waiting_for_render = false;
         std::array<float, 3> link_highlight_color = cc3(DEFAULT_LINK_HIGHLIGHT_COLOR);
 
+        if (visible_pages.size() > 0) {
+            int num_pages = document_view->get_document()->num_pages();
+            int max_page = visible_pages[visible_pages.size() - 1];
+            for (int page_offset = PRERENDERED_PAGE_COUNT; page_offset >= 0; page_offset--) {
+                int page_number = max_page + page_offset;
+                if (page_number < num_pages) {
+                    float page_width = document_view->get_document()->get_page_width(page_number);
+                    float page_height = document_view->get_document()->get_page_height(page_number);
+                    PagelessDocumentRect page_rect({ 0, 0, page_width, page_height });
+                    int horizontal_slices, vertical_slices;
+                    bool is_sliced = num_slices_for_page_rect(page_rect, &horizontal_slices, &vertical_slices);
+                    float zoom_level = document_view->get_zoom_level();
+                    if (SAME_WIDTH && document_view->same_width_mode_first_page_width) {
+                        zoom_level *= document_view->same_width_mode_first_page_width.value() / page_width;
+                    }
+
+                    for (int slice_index = horizontal_slices * vertical_slices - 1; slice_index >= 0; slice_index--) {
+                        pdf_renderer->find_rendered_page(
+                            document_view->get_document()->get_path(),
+                            page_number,
+                            document_view->get_document()->should_render_pdf_annotations(),
+                            is_sliced ? slice_index : -1,
+                            horizontal_slices,
+                            vertical_slices,
+                            zoom_level,
+                            devicePixelRatioF(),
+                            nullptr,
+                            nullptr);
+                    }
+                }
+            }
+        }
+
         for (int page : visible_pages) {
             render_page(page);
 
@@ -2073,34 +2108,6 @@ void PdfViewOpenGLWidget::my_render(QPainter* painter) {
                 //	all_visible_links.push_back(std::make_pair(page, links));
                 //	links = links->next;
                 //}
-            }
-        }
-        // prerender pages
-        if (visible_pages.size() > 0) {
-            int num_pages = document_view->get_document()->num_pages();
-            int max_page = visible_pages[visible_pages.size() - 1];
-            for (int i = 0; i < (PRERENDERED_PAGE_COUNT + 1); i++) {
-                if (max_page + i < num_pages) {
-                    float page_width = document_view->get_document()->get_page_width(max_page + i);
-                    float page_height = document_view->get_document()->get_page_height(max_page + i);
-                    PagelessDocumentRect page_rect({ 0, 0, page_width, page_height });
-                    int nh, nv;
-                    num_slices_for_page_rect(page_rect, &nh, &nv);
-
-                    for (int k = 0; k < nh * nv; k++) {
-                        pdf_renderer->find_rendered_page(
-                            document_view->get_document()->get_path(),
-                            max_page + i,
-                            document_view->get_document()->should_render_pdf_annotations(),
-                            k,
-                            nh,
-                            nv,
-                            document_view->get_zoom_level(),
-                            devicePixelRatioF(),
-                            nullptr,
-                            nullptr);
-                    }
-                }
             }
         }
     }

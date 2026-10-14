@@ -84,15 +84,13 @@ void PdfRenderer::add_request(std::wstring document_path, int page, bool should_
                 pending_render_requests.erase(pending_render_requests.begin() + i);
             }
         }
-        bool should_add = true;
-        for (size_t i = 0; i < pending_render_requests.size(); i++) {
-            if (pending_render_requests[i] == req) {
-                should_add = false;
+        for (size_t request_index = 0; request_index < pending_render_requests.size(); request_index++) {
+            if (pending_render_requests[request_index] == req) {
+                pending_render_requests.erase(pending_render_requests.begin() + request_index);
+                break;
             }
         }
-        if (should_add) {
-            pending_render_requests.push_back(req);
-        }
+        pending_render_requests.push_back(req);
         if (pending_render_requests.size() > (size_t) MAX_PENDING_REQUESTS) {
             pending_render_requests.erase(pending_render_requests.begin());
         }
