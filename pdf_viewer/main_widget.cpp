@@ -9340,6 +9340,55 @@ void MainWidget::begin_note_arrow() {
     setCursor(Qt::CrossCursor);
 }
 
+bool MainWidget::has_selected_brace() {
+    if (!doc() || selected_bookmark_index < 0 || selected_bookmark_index >= doc()->get_bookmarks().size()) return false;
+    return doc()->get_bookmarks()[selected_bookmark_index].is_brace();
+}
+
+// A curly brace over the dragged rectangle. Like a free arrow it is an ordinary
+// note underneath -- only drawn differently -- so resizing, colour, border
+// width, delete, undo and copy all work on it without knowing what it is.
+void MainWidget::add_brace_note(AbsoluteRect rect) {
+    if (!doc()) return;
+    AbsoluteRect drawn;
+    drawn.x0 = std::min(rect.x0, rect.x1);
+    drawn.x1 = std::max(rect.x0, rect.x1);
+    drawn.y0 = std::max(0.0f, std::min(rect.y0, rect.y1));
+    drawn.y1 = std::max(rect.y0, rect.y1);
+    // A brace needs a size to be drawn in at all, and a stray click is not a drag.
+    if (drawn.width() < 2.0f || drawn.height() < 2.0f) return;
+
+    float color[3] = { FREETEXT_BOOKMARK_COLOR[0], FREETEXT_BOOKMARK_COLOR[1], FREETEXT_BOOKMARK_COLOR[2] };
+    doc()->add_freetext_bookmark_with_color(L"", drawn, color, -1);
+    const int index = static_cast<int>(doc()->get_bookmarks().size()) - 1;
+    if (index < 0) return;
+    // The shape of the drag picks the orientation: drawn down a margin it braces
+    // the lines beside it, drawn along a line it braces what sits above.
+    doc()->update_bookmark_shape(index, drawn.height() >= drawn.width()
+        ? NOTE_SHAPE_BRACE_LEFT : NOTE_SHAPE_BRACE_BOTTOM);
+    set_selected_highlight_index(-1);
+    set_selected_bookmark_index(index);
+    invalidate_render();
+}
+
+// Move the selected brace to the opposite edge, for one drawn on the wrong
+// side. It stays on the axis it was drawn on: a brace turned onto the other
+// axis would be as long as the rectangle is thin, which draws as a stretched
+// mess -- the shape of the drag decides the axis, and this decides the side.
+void MainWidget::flip_selected_brace() {
+    if (!has_selected_brace()) return;
+    const int shape = doc()->get_bookmarks()[selected_bookmark_index].shape;
+    int flipped = shape;
+    switch (shape) {
+    case NOTE_SHAPE_BRACE_LEFT: flipped = NOTE_SHAPE_BRACE_RIGHT; break;
+    case NOTE_SHAPE_BRACE_RIGHT: flipped = NOTE_SHAPE_BRACE_LEFT; break;
+    case NOTE_SHAPE_BRACE_TOP: flipped = NOTE_SHAPE_BRACE_BOTTOM; break;
+    default: flipped = NOTE_SHAPE_BRACE_TOP; break;
+    }
+    doc()->update_bookmark_shape(selected_bookmark_index, flipped);
+    invalidate_render();
+}
+
 // An arrow with no box. The press that follows makes the note, so unlike
 // begin_note_arrow() there is no index to remember here.
 void MainWidget::begin_free_note_arrow() {
@@ -9675,7 +9724,9 @@ void MainWidget::show_freetext_editor() {
     ui_trace("freetext_editor.show.enter", std::to_wstring(selected_bookmark_index));
     if (TOUCH_MODE || !doc() || selected_bookmark_index < 0 || selected_bookmark_index >= doc()->get_bookmarks().size()) return;
     const BookMark& bookmark = doc()->get_bookmarks()[selected_bookmark_index];
-    if (!bookmark.is_freetext() || bookmark.is_box()) return;
+    // A brace is a shape and holds no text, so the one place that opens the
+    // editor refuses it -- double click, menu and command alike.
+    if (!bookmark.is_freetext() || bookmark.is_box() || bookmark.is_brace()) return;
     capture_freetext_edit_appearance();
     text_command_line_edit_container->hide();
     freetext_editor->setPlainText(text_command_line_edit->text());
@@ -9724,7 +9775,7 @@ void MainWidget::grow_freetext_editor_to_fit() {
 void MainWidget::fit_note_to_text() {
     if (!doc() || selected_bookmark_index < 0 || selected_bookmark_index >= doc()->get_bookmarks().size()) return;
     BookMark& bookmark = doc()->get_bookmarks()[selected_bookmark_index];
-    if (!bookmark.is_freetext() || bookmark.is_box() || bookmark.is_free_arrow()) return;
+    if (!bookmark.is_freetext() || bookmark.is_box() || bookmark.is_free_arrow() || bookmark.is_brace()) return;
     if (freetext_editor && freetext_editor->isVisible() && !finish_freetext_edit_keeping_selection()) return;
 
     const QString text = QString::fromStdWString(bookmark.description);

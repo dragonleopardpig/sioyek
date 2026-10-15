@@ -79,6 +79,7 @@ public:
     bool update_bookmark_change_color(const std::string& uuid, const float color[3]);
     bool update_bookmark_border_width(const std::string& uuid, float border_width);
     bool update_bookmark_arrow(const std::string& uuid, const std::vector<NoteArrow>& arrows);
+    bool update_bookmark_shape(const std::string& uuid, int shape);
     bool update_bookmark_change_position(const std::string& uuid, AbsoluteDocumentPos new_begin, AbsoluteDocumentPos new_end);
     bool update_portal_change_src_position(const std::string& uuid, AbsoluteDocumentPos new_pos);
     bool select_opened_books_path_values(std::vector<std::wstring>& out_result);

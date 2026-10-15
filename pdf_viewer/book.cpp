@@ -220,6 +220,7 @@ QJsonObject BookMark::to_json(std::string doc_checksum) const
         res["border_width"] = border_width;
         res["text_offset_x"] = text_offset_x;
         res["text_offset_y"] = text_offset_y;
+        res["shape"] = shape;
         res["font_face"] = QString::fromStdWString(font_face);
         if (!arrows.empty()) {
             QJsonArray arrow_array;
@@ -271,6 +272,7 @@ void BookMark::from_json(const QJsonObject& json_object)
         border_width = json_object["border_width"].toDouble(2.0);
         text_offset_x = json_object["text_offset_x"].toDouble(0.0);
         text_offset_y = json_object["text_offset_y"].toDouble(0.0);
+        shape = json_object["shape"].toInt(NOTE_SHAPE_RECT);
         font_face = json_object["font_face"].toString().toStdWString();
     }
     arrows.clear();
@@ -314,6 +316,69 @@ bool BookMark::is_box() const {
 bool BookMark::is_free_arrow() const {
     return is_freetext() && !is_box() && description.empty() &&
         std::abs(end_x - begin_x) < 0.01f && std::abs(end_y - begin_y) < 0.01f;
+}
+
+bool BookMark::is_brace() const {
+    return shape >= NOTE_SHAPE_BRACE_LEFT && shape <= NOTE_SHAPE_BRACE_BOTTOM;
+}
+
+std::vector<AbsoluteDocumentPos> note_brace_points(const BookMark& bookmark) {
+    std::vector<AbsoluteDocumentPos> points;
+    if (!bookmark.is_brace()) return points;
+
+    const AbsoluteRect rect = bookmark.get_rectangle();
+    const bool vertical = bookmark.shape == NOTE_SHAPE_BRACE_LEFT ||
+                          bookmark.shape == NOTE_SHAPE_BRACE_RIGHT;
+    const float length = vertical ? (rect.y1 - rect.y0) : (rect.x1 - rect.x0);
+    const float depth = vertical ? (rect.x1 - rect.x0) : (rect.y1 - rect.y0);
+    if (length < 0.001f || depth < 0.001f) return points;
+
+    // The brace is described once, in its own terms: `a` runs from 0 to 1 along
+    // its length and `c` across it, 0 at the point and 1 at the two ends. Which
+    // edge that lands on is the only difference between the four orientations.
+    auto place = [&](float a, float c) {
+        const float along = (vertical ? rect.y0 : rect.x0) + a * length;
+        float across = 0.0f;
+        switch (bookmark.shape) {
+        case NOTE_SHAPE_BRACE_LEFT: across = rect.x0 + c * depth; break;
+        case NOTE_SHAPE_BRACE_RIGHT: across = rect.x1 - c * depth; break;
+        case NOTE_SHAPE_BRACE_TOP: across = rect.y0 + c * depth; break;
+        default: across = rect.y1 - c * depth; break;
+        }
+        return vertical ? AbsoluteDocumentPos{ across, along }
+                        : AbsoluteDocumentPos{ along, across };
+    };
+    auto push = [&](float a, float c) { points.push_back(place(a, c)); };
+
+    // Each turn of a brace is a quarter circle, so it is drawn as one: a cubic
+    // with its controls pulled 0.5523 of the way to the corner, the usual
+    // approximation.
+    auto turn = [&](float sa, float sc, float ka, float kc, float ea, float ec) {
+        const float k = 0.5523f;
+        const float p1a = sa + (ka - sa) * k, p1c = sc + (kc - sc) * k;
+        const float p2a = ea + (ka - ea) * k, p2c = ec + (kc - ec) * k;
+        const int steps = 10;
+        for (int i = 1; i <= steps; i++) {
+            const float t = static_cast<float>(i) / steps;
+            const float u = 1.0f - t;
+            push(u*u*u*sa + 3*u*u*t*p1a + 3*u*t*t*p2a + t*t*t*ea,
+                 u*u*u*sc + 3*u*u*t*p1c + 3*u*t*t*p2c + t*t*t*ec);
+        }
+    };
+
+    // How much of the length each turn takes. Half the depth keeps the turns
+    // round; a quarter of the length is the most that fits, four of them being
+    // needed, and is what a brace dragged short and wide ends up using.
+    const float turn_length = std::min(depth * 0.5f, length * 0.25f) / length;
+
+    push(0.0f, 1.0f);
+    turn(0.0f, 1.0f, 0.0f, 0.5f, turn_length, 0.5f);
+    push(0.5f - turn_length, 0.5f);
+    turn(0.5f - turn_length, 0.5f, 0.5f, 0.5f, 0.5f, 0.0f);
+    turn(0.5f, 0.0f, 0.5f, 0.5f, 0.5f + turn_length, 0.5f);
+    push(1.0f - turn_length, 0.5f);
+    turn(1.0f - turn_length, 0.5f, 1.0f, 0.5f, 1.0f, 1.0f);
+    return points;
 }
 
 bool BookMark::is_marked() const {

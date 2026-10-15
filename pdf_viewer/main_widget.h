@@ -554,6 +554,9 @@ public:
     void change_selected_bookmark_color(char type);
     void begin_note_arrow();
     void begin_free_note_arrow();
+    void add_brace_note(AbsoluteRect rect);
+    void flip_selected_brace();
+    bool has_selected_brace();
     void delete_selected_note_arrow();
     int note_arrow_handle_at(WindowPos pos, int* out_arrow_index = nullptr);
     void note_text_ink_inset(const BookMark& bookmark, float* out_top, float* out_left);

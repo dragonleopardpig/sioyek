@@ -3716,6 +3716,37 @@ public:
     void perform() override { widget->begin_note_arrow(); }
 };
 
+class AddBraceCommand : public Command {
+public:
+    static inline const std::string cname = "add_brace";
+    static inline const std::string hname = "Draw a curly brace, or move the selected one to the opposite side";
+    std::optional<AbsoluteRect> rect_;
+
+    AddBraceCommand(MainWidget* w) : Command(cname, w) {};
+
+    // With a brace already selected the command flips it, which needs nothing
+    // from the user; otherwise it asks for the rectangle to draw one in.
+    std::optional<Requirement> next_requirement(MainWidget* widget) {
+        if (widget->has_selected_brace()) return {};
+        if (!rect_.has_value()) {
+            Requirement req = { RequirementType::Rect, "Brace Location" };
+            return req;
+        }
+        return {};
+    }
+
+    void set_rect_requirement(AbsoluteRect value) { rect_ = value; }
+
+    void perform() override {
+        if (rect_.has_value()) widget->add_brace_note(rect_.value());
+        else widget->flip_selected_brace();
+        widget->clear_selected_rect();
+        widget->invalidate_render();
+    }
+
+    bool requires_document() { return true; }
+};
+
 class AddFreeArrowCommand : public Command {
 public:
     static inline const std::string cname = "add_free_arrow";
@@ -7447,6 +7478,7 @@ CommandManager::CommandManager(ConfigManager* config_manager) {
     register_command<ChangeSelectedBookmarkColorCommand>();
     register_command<AddNoteArrowCommand>();
     register_command<AddFreeArrowCommand>();
+    register_command<AddBraceCommand>();
     register_command<UndoDeleteAnnotationCommand>();
     register_command<ToggleNoteArrowStraightCommand>();
     register_command<FitNoteToTextCommand>();

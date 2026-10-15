@@ -243,7 +243,7 @@ static int global_highlight_select_callback(void* res_vector, int argc, char** a
 // the process on the first document that had a bookmark. Derive the count from
 // the list so they cannot drift again.
 static constexpr const char* BOOKMARK_SELECT_COLUMNS =
-    "desc, offset_y, begin_x, begin_y, end_x, end_y, color_red, color_green, color_blue, font_size, font_face, uuid, creation_time, modification_time, arrow_json, border_width, text_offset_x, text_offset_y";
+    "desc, offset_y, begin_x, begin_y, end_x, end_y, color_red, color_green, color_blue, font_size, font_face, uuid, creation_time, modification_time, arrow_json, border_width, text_offset_x, text_offset_y, shape";
 
 static constexpr int count_select_columns(const char* columns) {
     int count = 1;
@@ -329,6 +329,7 @@ static int bookmark_select_callback(void* res_vector, int argc, char** argv, cha
     if (argv[15]) bm.border_width = atof(argv[15]);
     if (argv[16]) bm.text_offset_x = atof(argv[16]);
     if (argv[17]) bm.text_offset_y = atof(argv[17]);
+    if (argv[18]) bm.shape = atoi(argv[18]);
 
     res->push_back(bm);
     return 0;
@@ -608,6 +609,7 @@ bool DatabaseManager::create_bookmarks_table() {
         "border_width REAL DEFAULT 2.0,"\
         "text_offset_x REAL DEFAULT 0,"\
         "text_offset_y REAL DEFAULT 0,"\
+        "shape INTEGER DEFAULT 0,"\
         "begin_x real DEFAULT -1,"\
         "begin_y real DEFAULT -1,"\
         "end_x real DEFAULT -1,"\
@@ -833,7 +835,7 @@ bool DatabaseManager::insert_bookmark_freetext(const std::string& document_path,
     std::lock_guard<std::recursive_mutex> lock(db_mutex);
 
     std::wstringstream ss;
-    ss << "INSERT INTO bookmarks (document_path, desc, begin_x, begin_y, end_x, end_y, color_red, color_green, color_blue, font_size, font_face, arrow_json, border_width, text_offset_x, text_offset_y, uuid, creation_time, modification_time) VALUES ('"
+    ss << "INSERT INTO bookmarks (document_path, desc, begin_x, begin_y, end_x, end_y, color_red, color_green, color_blue, font_size, font_face, arrow_json, border_width, text_offset_x, text_offset_y, shape, uuid, creation_time, modification_time) VALUES ('"
         << esc(document_path) << "', '"
         << esc(bm.description) << "', "
         << bm.begin_x << " , "
@@ -848,7 +850,8 @@ bool DatabaseManager::insert_bookmark_freetext(const std::string& document_path,
         << esc(note_arrows_to_db_string(bm.arrows).toStdWString()) << "', "
         << bm.border_width << ", "
         << bm.text_offset_x << ", "
-        << bm.text_offset_y << ", '"
+        << bm.text_offset_y << ", "
+        << bm.shape << ", '"
         << esc(bm.uuid) << "', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);";
     char* error_message = nullptr;
 
@@ -1769,11 +1772,13 @@ void DatabaseManager::ensure_schema_compatibility() {
         bool has_arrow_column = false;
         bool has_border_width_column = false;
         bool has_text_offset_columns = false;
+        bool has_shape_column = false;
         while (sqlite3_step(columns) == SQLITE_ROW) {
             const unsigned char* name = sqlite3_column_text(columns, 1);
             if (name && std::string(reinterpret_cast<const char*>(name)) == "arrow_json") has_arrow_column = true;
             if (name && std::string(reinterpret_cast<const char*>(name)) == "border_width") has_border_width_column = true;
             if (name && std::string(reinterpret_cast<const char*>(name)) == "text_offset_y") has_text_offset_columns = true;
+            if (name && std::string(reinterpret_cast<const char*>(name)) == "shape") has_shape_column = true;
         }
         sqlite3_finalize(columns);
         if (!has_arrow_column) run_schema_query("ALTER TABLE bookmarks ADD COLUMN arrow_json TEXT;");
@@ -1782,6 +1787,7 @@ void DatabaseManager::ensure_schema_compatibility() {
             run_schema_query("ALTER TABLE bookmarks ADD COLUMN text_offset_x REAL DEFAULT 0;");
             run_schema_query("ALTER TABLE bookmarks ADD COLUMN text_offset_y REAL DEFAULT 0;");
         }
+        if (!has_shape_column) run_schema_query("ALTER TABLE bookmarks ADD COLUMN shape INTEGER DEFAULT 0;");
     }
 }
 
@@ -2019,6 +2025,13 @@ bool DatabaseManager::update_bookmark_change_color(const std::string& uuid, cons
             {"modification_time", "CURRENT_TIMESTAMP"},
         });
 }
+bool DatabaseManager::update_bookmark_shape(const std::string& uuid, int shape) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex);
+    return generic_update_run_query("bookmarks",
+        {{"uuid", QString::fromStdString(uuid)}},
+        {{"shape", shape}, {"modification_time", "CURRENT_TIMESTAMP"}});
+}
+
 bool DatabaseManager::update_bookmark_border_width(const std::string& uuid, float border_width) {
     std::lock_guard<std::recursive_mutex> lock(db_mutex);
     return generic_update_run_query("bookmarks",

@@ -2365,9 +2365,27 @@ void PdfViewOpenGLWidget::my_render(QPainter* painter) {
 
                     std::array<float, 3> bookmark_color = cc3(bookmarks[i].color);
                     painter->setPen(convert_float3_to_qcolor(&bookmark_color[0]));
+                    if (bookmarks[i].is_brace()) {
+                        // The brace stands in for the border: same colour and
+                        // stroke width, drawn from the shared outline.
+                        painter->save();
+                        painter->setRenderHint(QPainter::Antialiasing, true);
+                        painter->setPen(QPen(convert_float3_to_qcolor(&bookmark_color[0]),
+                            std::max(0.5f, bookmarks[i].border_width * document_view->get_zoom_level()),
+                            Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+                        const std::vector<AbsoluteDocumentPos> outline = note_brace_points(bookmarks[i]);
+                        QPainterPath brace;
+                        for (size_t point_index = 0; point_index < outline.size(); point_index++) {
+                            WindowPos at = outline[point_index].to_window(document_view);
+                            if (point_index == 0) brace.moveTo(at.x, at.y);
+                            else brace.lineTo(at.x, at.y);
+                        }
+                        painter->drawPath(brace);
+                        painter->restore();
+                    }
                     // An empty note is still drawn as a rectangle so it can be
                     // found, but a free arrow is meant to have no box at all.
-                    if (!bookmarks[i].is_box() && !bookmarks[i].is_free_arrow() &&
+                    else if (!bookmarks[i].is_box() && !bookmarks[i].is_free_arrow() &&
                         (RENDER_FREETEXT_BORDERS || bookmarks[i].description.empty())) {
                         painter->save();
                         painter->setRenderHint(QPainter::Antialiasing, true);

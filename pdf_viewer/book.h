@@ -104,10 +104,24 @@ struct NoteArrow {
 // one-element list -- notes made before this keep their arrow.
 QString note_arrows_to_db_string(const std::vector<NoteArrow>& arrows);
 std::vector<NoteArrow> note_arrows_from_db_string(const QString& value);
+// A note's rectangle is normally drawn as a rectangle. A brace replaces that
+// border with a curly brace filling the rectangle: its point sits on the named
+// edge and its two ends curl toward the opposite one, so NOTE_SHAPE_BRACE_LEFT
+// is a `{` down the left edge, opening right.
+constexpr int NOTE_SHAPE_RECT = 0;
+constexpr int NOTE_SHAPE_BRACE_LEFT = 1;
+constexpr int NOTE_SHAPE_BRACE_RIGHT = 2;
+constexpr int NOTE_SHAPE_BRACE_TOP = 3;
+constexpr int NOTE_SHAPE_BRACE_BOTTOM = 4;
+
 // The corners and edge midpoints drawn as a selected note's resize handles.
 constexpr int NUM_NOTE_BOX_HANDLES = 8;
 void note_box_handles(const BookMark& bookmark, AbsoluteDocumentPos out_handles[NUM_NOTE_BOX_HANDLES]);
 AbsoluteDocumentPos note_arrow_anchor(const BookMark& bookmark, AbsoluteDocumentPos toward);
+// The brace as a flattened outline in absolute document coordinates. The screen
+// and the PDF export both draw this one polyline, so an exported brace cannot
+// drift from the one on screen.
+std::vector<AbsoluteDocumentPos> note_brace_points(const BookMark& bookmark);
 
 /*
     A bookmark is similar to mark but instead of being indexed by a symbol, it has a description.
@@ -131,6 +145,9 @@ struct BookMark : Annotation {
     // its place on the page whichever handle is used.
     float text_offset_x = 0.0f;
     float text_offset_y = 0.0f;
+    // NOTE_SHAPE_*: what the rectangle is drawn as. Older notes have no column
+    // for it and read back as 0, a plain rectangle.
+    int shape = NOTE_SHAPE_RECT;
     std::wstring font_face;
     std::vector<NoteArrow> arrows;
 
@@ -147,6 +164,9 @@ struct BookMark : Annotation {
     // An arrow standing on its own, with no box: the note's rectangle has
     // collapsed onto the point the arrow grows from.
     bool is_free_arrow() const;
+    // Drawn as a curly brace rather than a rectangle. A brace is a shape and
+    // holds no text.
+    bool is_brace() const;
     bool is_marked() const;
     std::optional<char> get_type() const;
 

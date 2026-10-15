@@ -2606,6 +2606,10 @@ void Document::embed_annotations(std::wstring new_file_path) {
             // Nothing to export for a box that has collapsed to a point; only
             // the ink arrow below carries any of this note's geometry.
         }
+        else if (bookmark.is_brace()) {
+            // Likewise: a brace is carried by the ink below, and a square here
+            // would export as a box nobody drew.
+        }
         else if (bookmark.is_freetext() && (!bookmark.is_box())) {
             if (bookmark.description.empty()) {
                 // An empty note is drawn as a rectangle, and a FreeText annotation
@@ -2669,6 +2673,30 @@ void Document::embed_annotations(std::wstring new_file_path) {
             pdf_update_annot(context, bookmark_annot);
 
             created_annotations.push_back(std::make_pair(pdf_page, bookmark_annot));
+        }
+
+        // PDF has no brace annotation either, so the same outline that is drawn
+        // on screen is exported as ink.
+        if (bookmark.is_brace()) {
+            std::vector<fz_point> brace_points;
+            bool brace_complete = true;
+            for (const AbsoluteDocumentPos& point : note_brace_points(bookmark)) {
+                DocumentPos docpos = absolute_to_page_pos_uncentered(point);
+                if (docpos.page != page_number) {
+                    brace_complete = false;
+                    break;
+                }
+                brace_points.push_back(fz_point{ docpos.x, docpos.y });
+            }
+            if (brace_complete && brace_points.size() > 1) {
+                int brace_count = static_cast<int>(brace_points.size());
+                pdf_annot* brace_annot = pdf_create_annot(context, pdf_page, PDF_ANNOT_INK);
+                pdf_set_annot_ink_list(context, brace_annot, 1, &brace_count, &brace_points[0]);
+                pdf_set_annot_border(context, brace_annot, bookmark.border_width);
+                pdf_set_annot_color(context, brace_annot, 3, bookmark.color);
+                pdf_update_annot(context, brace_annot);
+                created_annotations.push_back(std::make_pair(pdf_page, brace_annot));
+            }
         }
 
         // PDF has no curved-arrow annotation, so the cubic is flattened into an
@@ -4187,6 +4215,15 @@ void Document::update_bookmark_color(int index, const float color[3]) {
         for (int component = 0; component < 3; ++component) {
             bookmarks[index].color[component] = color[component];
         }
+        bookmarks[index].update_modification_time();
+        is_annotations_dirty = true;
+    }
+}
+
+void Document::update_bookmark_shape(int index, int shape) {
+    if (index >= 0 && index < bookmarks.size() &&
+        db_manager->update_bookmark_shape(bookmarks[index].uuid, shape)) {
+        bookmarks[index].shape = shape;
         bookmarks[index].update_modification_time();
         is_annotations_dirty = true;
     }
