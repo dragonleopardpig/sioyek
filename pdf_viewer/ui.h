@@ -635,7 +635,15 @@ public:
         QString file_name;
 
         if (last_path.size() > 0) {
-            split_root_file(last_path, root_path, file_name);
+            if (QFileInfo(expand_home_dir(last_path)).isDir()) {
+                root_path = last_path;
+            }
+            else {
+                split_root_file(last_path, root_path, file_name);
+            }
+        }
+        root_path = QDir(expand_home_dir(root_path)).absolutePath();
+        if (!root_path.endsWith(QDir::separator())) {
             root_path += QDir::separator();
         }
 
@@ -662,6 +670,40 @@ public:
             dynamic_cast<QListView*>(get_view())->setCurrentIndex(list_model->index(0, 0));
         }
         //dynamic_cast<QListView*>(get_view())->setCurrentIndex();
+        get_view()->installEventFilter(this);
+    }
+
+    bool eventFilter(QObject* object, QEvent* event) override {
+        if ((object == line_edit || object == get_view()) && event->type() == QEvent::KeyPress) {
+            QKeyEvent* key_event = static_cast<QKeyEvent*>(event);
+            if (key_event->modifiers() == Qt::ControlModifier &&
+                (key_event->key() == Qt::Key_N || key_event->key() == Qt::Key_P)) {
+                int navigation_key = key_event->key() == Qt::Key_N ? Qt::Key_Down : Qt::Key_Up;
+                QCoreApplication::postEvent(get_view(),
+                    new QKeyEvent(QEvent::KeyPress, navigation_key, Qt::NoModifier));
+                return true;
+            }
+            if (key_event->key() == Qt::Key_Backspace && key_event->modifiers() == Qt::NoModifier) {
+                QDir directory(last_root);
+                directory.cdUp();
+                QString parent_path = directory.absolutePath();
+                if (!parent_path.endsWith(QDir::separator())) {
+                    parent_path += QDir::separator();
+                }
+                line_edit->setText(parent_path);
+                line_edit->setFocus();
+                return true;
+            }
+            if (key_event->text() == "/" &&
+                !(key_event->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier))) {
+                std::optional<QModelIndex> selected_index = get_selected_index();
+                if (selected_index && list_model->data(selected_index.value()).toString().endsWith(QDir::separator())) {
+                    on_select(selected_index.value());
+                    return true;
+                }
+            }
+        }
+        return BaseSelectorWidget::eventFilter(object, event);
     }
 
     virtual bool on_text_change(const QString& text) {
@@ -669,12 +711,7 @@ public:
         QString partial_name;
         split_root_file(text, root_path, partial_name);
 
-        last_root = root_path;
-        if (last_root.size() > 0) {
-            if (last_root.at(last_root.size() - 1) == QDir::separator()) {
-                last_root.chop(1);
-            }
-        }
+        last_root = QDir(expand_home_dir(root_path)).absolutePath();
 
         QStringList match_list = get_dir_contents(root_path, partial_name);
         QStringListModel* new_list_model = new QStringListModel(match_list);
@@ -734,9 +771,12 @@ public:
     }
 
     void on_select(const QModelIndex& index) {
+        if (!index.isValid()) {
+            return;
+        }
         QString name = list_model->data(index).toString();
         QChar sep = QDir::separator();
-        QString full_path = expand_home_dir((last_root.size() > 0) ? (last_root + sep + name) : name);
+        QString full_path = QDir(last_root).filePath(name);
 
         if (QFileInfo(full_path).isFile()) {
             on_done(full_path.toStdWString());
@@ -745,7 +785,13 @@ public:
         }
         else {
             QString canonical_path { QDir(full_path).canonicalPath() };
-            line_edit->setText(canonical_path + sep);
+            if (!canonical_path.isEmpty()) {
+                if (!canonical_path.endsWith(sep)) {
+                    canonical_path += sep;
+                }
+                line_edit->setText(canonical_path);
+                line_edit->setFocus();
+            }
         }
     }
 };

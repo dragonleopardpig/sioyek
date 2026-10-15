@@ -4251,7 +4251,7 @@ public:
     OpenDocumentEmbeddedFromCurrentPathCommand(MainWidget* w) : GenericPathCommand(cname, w) {};
 
     void handle_generic_requirement() {
-        std::wstring last_file_name = widget->get_current_file_name().value_or(L"");
+        std::wstring last_file_name = widget->get_current_file_name().value_or(DEFAULT_OPEN_FILE_PATH);
 
         widget->set_current_widget(new FileSelector(
             FUZZY_SEARCHING,

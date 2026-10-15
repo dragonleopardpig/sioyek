@@ -11,6 +11,14 @@ readable by an unpatched Sioyek.
 
 ## What it adds
 
+**File picker**
+
+- `/` enters the highlighted directory, including a fuzzy match.
+- `Ctrl+n` and `Ctrl+p` move down and up through candidates.
+- Backspace moves to the parent directory, including when a filter is typed.
+- `open_document_embedded_from_current_path` starts beside the current document
+  and falls back to the configured default directory when no document is open.
+
 **Document mouse interaction**
 
 - Document canvases opt out of theme-driven window dragging. Under Kvantum,
