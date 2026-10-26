@@ -1683,6 +1683,11 @@ std::vector<DocumentPos> Document::find_generic_locations(const std::wstring& ty
 
             if (current_name == name) {
                 int score = type_name_similarity_score(current_type, type);
+                if ((lower_type == L"fig" || lower_type == L"fig.") &&
+                    to_lower(current_type) == L"figure") {
+                    // Prefer a figure caption over an abbreviated in-text reference.
+                    score += 2;
+                }
                 DocumentPos pos{ generic_indices[i].page, 0, generic_indices[i].y_offset };
                 pos_scores.push_back(std::make_pair(score, pos));
                 //if (score > best_score) {
