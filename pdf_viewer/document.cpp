@@ -1,5 +1,6 @@
 #include "document.h"
 #include <algorithm>
+#include <cwctype>
 #include <thread>
 #include <cmath>
 #include "coordinates.h"
@@ -1610,6 +1611,67 @@ std::optional<std::wstring> Document::get_regex_match_at_position(const std::wre
 }
 
 std::vector<DocumentPos> Document::find_generic_locations(const std::wstring& type, const std::wstring& name) {
+    const std::wstring lower_type = to_lower(type);
+    if (lower_type == L"sec" || lower_type == L"sec." ||
+        lower_type == L"sect" || lower_type == L"sect." || lower_type == L"section") {
+        static const std::wregex section_name_regex(L"([0-9]+(\\.[0-9]+)*)([A-Za-z])");
+        std::wsmatch section_match;
+        if (std::regex_match(name, section_match, section_name_regex)) {
+            const std::wstring section_number = section_match[1].str();
+            const wchar_t subsection = std::towupper(section_match[3].str()[0]);
+            const auto& toc_names = get_flat_toc_names();
+            const auto& toc_pages = get_flat_toc_pages();
+
+            // Lettered subsections are usually absent from the PDF outline.
+            auto toc_number = [](const std::wstring& title) {
+                size_t length = 0;
+                while (length < title.size() &&
+                    ((title[length] >= L'0' && title[length] <= L'9') || title[length] == L'.')) {
+                    length++;
+                }
+                if (length == 0 || title[length - 1] == L'.' ||
+                    (length < title.size() && title[length] != L' ' &&
+                     title[length] != L'\t' && title[length] != L'\0')) {
+                    return std::wstring{};
+                }
+                return title.substr(0, length);
+            };
+
+            for (size_t i = 0; i < toc_names.size() && i < toc_pages.size(); i++) {
+                if (toc_number(toc_names[i]) != section_number) continue;
+                const int start_page = toc_pages[i];
+                if (start_page < 0 || start_page >= num_pages()) break;
+
+                int end_page = std::min(num_pages(), start_page + 40);
+                for (size_t j = i + 1; j < toc_names.size() && j < toc_pages.size(); j++) {
+                    const std::wstring next_number = toc_number(toc_names[j]);
+                    if (next_number.empty() || next_number == section_number ||
+                        next_number.compare(0, section_number.size() + 1, section_number + L".") == 0) {
+                        continue;
+                    }
+                    if (toc_pages[j] > start_page) {
+                        end_page = std::min(end_page, toc_pages[j]);
+                        break;
+                    }
+                }
+
+                const std::wregex heading_regex(
+                    L"^[ \\t]*" + std::wstring(1, subsection) + L"\\.[ \\t]+[A-Za-z]");
+                for (int page = start_page; page < end_page; page++) {
+                    std::vector<std::wstring> line_texts;
+                    const auto& line_rects = get_page_lines(page, &line_texts);
+                    for (size_t line = 0; line < line_texts.size() && line < line_rects.size(); line++) {
+                        if (std::regex_search(line_texts[line], heading_regex)) {
+                            return {line_rects[line].top_left().to_document(this)};
+                        }
+                    }
+                }
+                return {};
+            }
+            return {};
+        }
+    }
+
     std::vector<std::pair<int, DocumentPos>> pos_scores;
 
     for (size_t i = 0; i < generic_indices.size(); i++) {
@@ -1664,7 +1726,7 @@ std::optional<std::pair<std::wstring, std::wstring>> Document::get_generic_link_
     std::pair<int,
     int>* out_range) {
 
-    std::wregex regex(L"[a-zA-Z]{3,}(\\.){0,1}[ \t]+[0-9]+(\\.[0-9]+)*");
+    std::wregex regex(L"[a-zA-Z]{3,}(\\.){0,1}[ \t]+[0-9]+(\\.[0-9]+)*(-[0-9]+)?[A-Za-z]?");
     std::optional<std::wstring> match_string = get_regex_match_at_position(regex, flat_chars, position, out_range);
     if (match_string) {
         std::vector<std::wstring> parts = split_whitespace(match_string.value());
