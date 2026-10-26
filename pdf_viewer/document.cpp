@@ -1640,7 +1640,7 @@ std::vector<DocumentPos> Document::find_generic_locations(const std::wstring& ty
             for (size_t i = 0; i < toc_names.size() && i < toc_pages.size(); i++) {
                 if (toc_number(toc_names[i]) != section_number) continue;
                 const int start_page = toc_pages[i];
-                if (start_page < 0 || start_page >= num_pages()) break;
+                if (start_page < 0 || start_page >= num_pages()) continue;
 
                 int end_page = std::min(num_pages(), start_page + 40);
                 for (size_t j = i + 1; j < toc_names.size() && j < toc_pages.size(); j++) {
@@ -1666,9 +1666,8 @@ std::vector<DocumentPos> Document::find_generic_locations(const std::wstring& ty
                         }
                     }
                 }
-                return {};
+                break;
             }
-            return {};
         }
     }
 
