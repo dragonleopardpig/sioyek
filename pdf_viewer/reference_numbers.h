@@ -200,6 +200,9 @@ inline std::optional<std::wstring> equation_key(std::wstring_view text) {
         text.remove_prefix(1);
         text.remove_suffix(1);
     }
+    else if (text.size() >= 3 && letter(text.front()) && text.back() == L')') {
+        text.remove_suffix(1);
+    }
     auto parsed = parse_number(text, 0, false);
     if (!parsed || parsed->end != text.size()) return {};
     return parsed->number.key();
@@ -207,7 +210,7 @@ inline std::optional<std::wstring> equation_key(std::wstring_view text) {
 
 inline const std::wstring& equation_tag_pattern() {
     static const std::wstring pattern =
-        LR"(\(([0-9]+|[IVXLCDMivxlcdm]+|[A-Za-z])([.\-][0-9]+)*([A-Za-z]|[ \t]+[A-Za-z]|[ \t]*\([A-Za-z]\))?\))";
+        LR"(\(([0-9]+|[IVXLCDMivxlcdm]+|[A-Za-z])([.\-][0-9]+)*([A-Za-z]|[ \t]+[A-Za-z]|[ \t]*\([A-Za-z]\))?\)|[A-Z]\.[0-9]+(\.[0-9]+)*\))";
     return pattern;
 }
 

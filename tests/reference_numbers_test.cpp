@@ -50,6 +50,7 @@ int main() {
     assert(equation_key(L"(08.03A)") == L"8.3A");
     assert(equation_key(L"(8.5(B))") == L"8.5B");
     assert(equation_key(L"[A.2]") == L"A.2");
+    assert(equation_key(L"B.1)") == L"B.1");
     assert(!equation_key(L"(not a number)"));
     for (const auto* source : {L"Eq. (23.1-11)", L"Equation 8.5B",
                                L"Equations (8.5(B))", L"Eqn. A.2", L"eq A.2"}) {
@@ -60,7 +61,7 @@ int main() {
     }
     assert(!std::regex_search(L"Inequations 3.4", equation_reference_regex()));
     for (const auto* tag : {L"(23.1-11)", L"(8.5(B))", L"(8.5 B)",
-                            L"(8.5 (B))", L"(A.2)", L"(IV.3)"}) {
+                            L"(8.5 (B))", L"(A.2)", L"(IV.3)", L"B.1)"}) {
         assert(std::regex_match(tag, equation_tag_regex()));
     }
     assert(!std::regex_match(L"[1]", equation_tag_regex()));
