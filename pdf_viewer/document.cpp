@@ -1614,15 +1614,15 @@ std::vector<DocumentPos> Document::find_generic_locations(const std::wstring& ty
     const std::wstring lower_type = to_lower(type);
     if (lower_type == L"sec" || lower_type == L"sec." ||
         lower_type == L"sect" || lower_type == L"sect." || lower_type == L"section") {
-        static const std::wregex section_name_regex(L"([0-9]+(\\.[0-9]+)*)([A-Za-z])");
+        static const std::wregex section_name_regex(L"([0-9]+(\\.[0-9]+)*)([A-Za-z]?)");
         std::wsmatch section_match;
         if (std::regex_match(name, section_match, section_name_regex)) {
             const std::wstring section_number = section_match[1].str();
-            const wchar_t subsection = std::towupper(section_match[3].str()[0]);
+            const std::wstring subsection_name = section_match[3].str();
             const auto& toc_names = get_flat_toc_names();
             const auto& toc_pages = get_flat_toc_pages();
 
-            // Lettered subsections are usually absent from the PDF outline.
+            // Numbered sections are in the outline; lettered subsections usually are not.
             auto toc_number = [](const std::wstring& title) {
                 size_t length = 0;
                 while (length < title.size() &&
@@ -1655,9 +1655,20 @@ std::vector<DocumentPos> Document::find_generic_locations(const std::wstring& ty
                     }
                 }
 
-                const std::wregex heading_regex(
-                    L"^[ \\t]*" + std::wstring(1, subsection) + L"\\.[ \\t]+[A-Za-z]");
-                for (int page = start_page; page < end_page; page++) {
+                std::wstring heading_number;
+                if (subsection_name.empty()) {
+                    for (wchar_t ch : section_number) {
+                        if (ch == L'.') heading_number += L"\\.";
+                        else heading_number += ch;
+                    }
+                }
+                else {
+                    heading_number = std::wstring(1, std::towupper(subsection_name[0])) + L"\\.";
+                }
+                const std::wregex heading_regex(L"^[ \\t]*" + heading_number + L"[ \\t]+\\S");
+                const int scan_end_page = subsection_name.empty()
+                    ? std::min(end_page, start_page + 2) : end_page;
+                for (int page = start_page; page < scan_end_page; page++) {
                     std::vector<std::wstring> line_texts;
                     const auto& line_rects = get_page_lines(page, &line_texts);
                     for (size_t line = 0; line < line_texts.size() && line < line_rects.size(); line++) {
@@ -1666,6 +1677,7 @@ std::vector<DocumentPos> Document::find_generic_locations(const std::wstring& ty
                         }
                     }
                 }
+                if (subsection_name.empty()) return {DocumentPos{start_page, 0, 0}};
                 break;
             }
         }
