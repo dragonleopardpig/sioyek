@@ -104,7 +104,8 @@ void get_flat_chars_from_stext_page(fz_stext_page* stext_page, std::vector<fz_st
 //void get_flat_chars_from_stext_page_for_bib_detection(fz_stext_page* stext_page, std::vector<fz_stext_char*>& flat_chars);
 int find_best_vertical_line_location(fz_pixmap* pixmap, int relative_click_x, int relative_click_y);
 //void get_flat_chars_from_stext_page_with_space(fz_stext_page* stext_page, std::vector<fz_stext_char*>& flat_chars, fz_stext_char* space);
-void index_equations(const std::vector<fz_stext_char*>& flat_chars, int page_number, std::map<std::wstring, std::vector<IndexedData>>& indices);
+void index_equations(const std::vector<fz_stext_char*>& flat_chars, int page_number,
+    std::map<std::wstring, std::vector<IndexedEquation>>& indices);
 void find_regex_matches_in_stext_page(const std::vector<fz_stext_char*>& flat_chars,
     const std::wregex& regex,
     std::vector<std::pair<int, int>>& match_ranges, std::vector<std::wstring>& match_texts);
@@ -184,7 +185,9 @@ void merge_lines(
 
 int lcs(const char* X, const char* Y, int m, int n);
 bool has_arg(int argc, char** argv, std::string key);
-std::vector<std::wstring> find_all_regex_matches(std::wstring haystack, const std::wstring& regex_string, std::vector<std::pair<int, int>>* match_ranges = nullptr);
+std::vector<std::wstring> find_all_regex_matches(std::wstring haystack, const std::wstring& regex_string,
+    std::vector<std::pair<int, int>>* match_ranges = nullptr,
+    std::regex_constants::syntax_option_type flags = std::regex_constants::ECMAScript);
 bool command_requires_text(const std::wstring& command);
 bool command_requires_rect(const std::wstring& command);
 void hexademical_to_normalized_color(std::wstring color_string, float* color, int n_components);

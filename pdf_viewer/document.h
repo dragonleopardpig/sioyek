@@ -60,6 +60,12 @@ struct CachedPageIndex {
     std::vector<PagelessDocumentRect> rects;
 };
 
+struct IndexedSectionHeading {
+    std::wstring number;
+    DocumentPos position;
+    float score;
+};
+
 class Document {
 
 private:
@@ -138,8 +144,9 @@ private:
     // the reference we are looking for is usually the last reference with that name, but this is not
     // necessarily true for the figures.
     std::vector<IndexedData> generic_indices;
+    std::vector<IndexedSectionHeading> section_headings;
     std::map<std::wstring, IndexedData> reference_indices;
-    std::map<std::wstring, std::vector<IndexedData>> equation_indices;
+    std::map<std::wstring, std::vector<IndexedEquation>> equation_indices;
 
     std::mutex document_indexing_mutex;
     std::optional<std::thread> document_indexing_thread = {};

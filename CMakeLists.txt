@@ -51,6 +51,7 @@ qt_add_executable(sioyek WIN32 MACOSX_BUNDLE
     pdf_viewer/pdf_renderer.cpp pdf_viewer/pdf_renderer.h
     pdf_viewer/pdf_view_opengl_widget.cpp pdf_viewer/pdf_view_opengl_widget.h
     pdf_viewer/rapidfuzz_amalgamated.hpp
+    pdf_viewer/reference_numbers.h
     pdf_viewer/touchui/TouchAudioButtons.cpp pdf_viewer/touchui/TouchAudioButtons.h
     pdf_viewer/touchui/TouchCheckbox.cpp pdf_viewer/touchui/TouchCheckbox.h
     pdf_viewer/touchui/TouchConfigMenu.cpp pdf_viewer/touchui/TouchConfigMenu.h

@@ -1,6 +1,8 @@
 #include "document.h"
 #include <algorithm>
 #include <cwctype>
+#include <functional>
+#include <limits>
 #include <thread>
 #include <cmath>
 #include "coordinates.h"
@@ -24,6 +26,7 @@
 #include "sqlite3.h"
 #include "checksum.h"
 #include "database.h"
+#include "reference_numbers.h"
 #include "utf8/checked.h"
 #include "utils.h"
 
@@ -1410,6 +1413,37 @@ int Document::get_offset_page_number(float y_offset) {
     return (it - accum_page_heights.begin());
 }
 
+static void index_section_headings(fz_stext_page* page, int page_number,
+    std::vector<IndexedSectionHeading>& headings, std::wstring& current_section) {
+    LL_ITER(block, page->first_block) {
+        if (block->type != FZ_STEXT_BLOCK_TEXT) continue;
+        LL_ITER(line, block->u.t.first_line) {
+            if (!line->first_char) continue;
+            std::wstring text;
+            LL_ITER(ch, line->first_char) {
+                text.push_back(ch->c);
+                if (text.size() > 200) break;
+            }
+            if (text.size() > 200) continue;
+            auto parsed = section_references::parse_title(text);
+            if (!parsed || !section_references::has_heading_title(text, parsed->end)) continue;
+
+            const auto& number = parsed->number;
+            std::wstring key = number.key();
+            if (number.base.size() == 1 && section_references::letter(number.base[0]) &&
+                !number.suffix && !current_section.empty()) {
+                key = current_section + number.base;
+            }
+            else {
+                current_section = number.base;
+            }
+            const float score = line->first_char->size +
+                ((line->first_char->flags & FZ_STEXT_BOLD) ? 3.0f : 0.0f);
+            headings.push_back({key, DocumentPos{page_number, 0, line->bbox.y0}, score});
+        }
+    }
+}
+
 void Document::index_document(bool* invalid_flag) {
     int n = num_pages();
 
@@ -1423,8 +1457,10 @@ void Document::index_document(bool* invalid_flag) {
 
     this->document_indexing_thread = std::thread([this, n, invalid_flag]() {
         std::vector<IndexedData> local_generic_data;
+        std::vector<IndexedSectionHeading> local_section_headings;
+        std::wstring current_section;
         std::map<std::wstring, IndexedData> local_reference_data;
-        std::map<std::wstring, std::vector<IndexedData>> local_equation_data;
+        std::map<std::wstring, std::vector<IndexedEquation>> local_equation_data;
 
         std::wstring local_super_fast_search_index;
         std::vector<int> local_page_begin_indices;
@@ -1461,6 +1497,7 @@ void Document::index_document(bool* invalid_flag) {
                 index_references(stext_page, i, local_reference_data);
                 index_equations(flat_chars, i, local_equation_data);
                 index_generic(flat_chars, i, local_generic_data);
+                index_section_headings(stext_page, i, local_section_headings, current_section);
 
                 // if the document doesn't have table of contents, try to create one
                 if (CREATE_TABLE_OF_CONTENTS_IF_NOT_EXISTS && (top_level_toc_nodes.size() == 0)) {
@@ -1486,6 +1523,7 @@ void Document::index_document(bool* invalid_flag) {
         reference_indices = std::move(local_reference_data);
         equation_indices = std::move(local_equation_data);
         generic_indices = std::move(local_generic_data);
+        section_headings = std::move(local_section_headings);
 
         super_fast_search_index = std::move(local_super_fast_search_index);
         super_fast_page_begin_indices = std::move(local_page_begin_indices);
@@ -1523,20 +1561,24 @@ std::vector<IndexedData> Document::find_reference_with_string(std::wstring refer
 }
 
 std::vector<IndexedData> Document::find_equation_with_string(std::wstring equation_name, int page_number) {
-    if (equation_name.size() > 1 && (equation_name[0] == '(' || equation_name[0] == '[')) {
-        equation_name = equation_name.substr(1, equation_name.size() - 2);
-    }
-    if (equation_indices.find(equation_name) != equation_indices.end()) {
-        const std::vector<IndexedData> equations = equation_indices[equation_name];
-        int min_distance = 10000;
-        std::optional<IndexedData> res = {};
+    auto key = section_references::equation_key(equation_name);
+    if (key) {
+        std::lock_guard guard(document_indexing_mutex);
+        auto found = equation_indices.find(*key);
+        if (found == equation_indices.end()) return {};
+        const auto& equations = found->second;
+        int best_confidence = -1;
+        int min_distance = std::numeric_limits<int>::max();
+        std::optional<IndexedData> res;
 
         for (const auto& index : equations) {
-            int distance = std::abs(index.page - page_number);
+            int distance = std::abs(index.data.page - page_number);
 
-            if (distance < min_distance) {
+            if (index.confidence > best_confidence ||
+                (index.confidence == best_confidence && distance < min_distance)) {
+                best_confidence = index.confidence;
                 min_distance = distance;
-                res = index;
+                res = index.data;
             }
         }
 
@@ -1549,23 +1591,35 @@ std::vector<IndexedData> Document::find_equation_with_string(std::wstring equati
 }
 
 std::vector<IndexedData> Document::find_generic_with_string(std::wstring equation_name, int page_number) {
-    QString qtext = QString::fromStdWString(equation_name);
-
     std::vector<IndexedData> res;
+    std::wstring type;
+    std::wstring ref;
+    std::wsmatch match;
+    if (std::regex_match(equation_name, match, section_references::section_reference_regex())) {
+        auto parsed = section_references::parse_title(equation_name);
+        if (!parsed) return {};
+        type = L"section";
+        ref = parsed->number.key();
+    }
+    else if (std::regex_match(equation_name, match, section_references::equation_reference_regex())) {
+        auto key = section_references::equation_key(match[2].str());
+        if (!key) return {};
+        type = L"equation";
+        ref = *key;
+    }
+    else {
+        auto parts = split_whitespace(equation_name);
+        if (parts.size() != 2) return {};
+        type = parts[0];
+        ref = parts[1];
+    }
 
-    QStringList parts = qtext.split(' ');
-    if (parts.size() == 2) {
-        std::wstring type = parts.at(0).toStdWString();
-        std::wstring ref = parts.at(1).toStdWString();
-
-        std::vector<DocumentPos> positions = find_generic_locations(type, ref);
-        for (auto pos : positions) {
-            IndexedData index;
-            index.page = pos.page;
-            index.text = equation_name;
-            index.y_offset = pos.y;
-            res.push_back(index);
-        }
+    for (auto pos : find_generic_locations(type, ref)) {
+        IndexedData index;
+        index.page = pos.page;
+        index.text = equation_name;
+        index.y_offset = pos.y;
+        res.push_back(index);
     }
     return res;
 }
@@ -1578,11 +1632,11 @@ std::optional<std::wstring> Document::get_equation_text_at_position(
     int>* out_range) {
 
 
-    std::wregex regex(L"\\([0-9]+(\\.[0-9]+)*\\)");
-    std::optional<std::wstring> match = get_regex_match_at_position(regex, flat_chars, position, out_range);
+    std::optional<std::wstring> match = get_regex_match_at_position(
+        section_references::equation_tag_regex(), flat_chars, position, out_range);
 
     if (match) {
-        return match.value().substr(1, match.value().size() - 2);
+        return section_references::equation_key(*match);
     }
     else {
         return {};
@@ -1612,75 +1666,106 @@ std::optional<std::wstring> Document::get_regex_match_at_position(const std::wre
 
 std::vector<DocumentPos> Document::find_generic_locations(const std::wstring& type, const std::wstring& name) {
     const std::wstring lower_type = to_lower(type);
-    if (lower_type == L"sec" || lower_type == L"sec." ||
-        lower_type == L"sect" || lower_type == L"sect." || lower_type == L"section") {
-        static const std::wregex section_name_regex(L"([0-9]+(\\.[0-9]+)*)([A-Za-z]?)");
-        std::wsmatch section_match;
-        if (std::regex_match(name, section_match, section_name_regex)) {
-            const std::wstring section_number = section_match[1].str();
-            const std::wstring subsection_name = section_match[3].str();
-            const auto& toc_names = get_flat_toc_names();
-            const auto& toc_pages = get_flat_toc_pages();
-
-            // Numbered sections are in the outline; lettered subsections usually are not.
-            auto toc_number = [](const std::wstring& title) {
-                size_t length = 0;
-                while (length < title.size() &&
-                    ((title[length] >= L'0' && title[length] <= L'9') || title[length] == L'.')) {
-                    length++;
+    if (section_references::is_equation_label(type)) {
+        auto key = section_references::equation_key(name);
+        if (!key) return {};
+        std::lock_guard guard(document_indexing_mutex);
+        auto found = equation_indices.find(*key);
+        if (found == equation_indices.end()) return {};
+        auto candidates = found->second;
+        std::stable_sort(candidates.begin(), candidates.end(), [](const auto& a, const auto& b) {
+            return a.confidence > b.confidence;
+        });
+        std::vector<DocumentPos> positions;
+        for (const auto& equation : candidates) {
+            positions.push_back(DocumentPos{equation.data.page, 0, equation.data.y_offset});
+        }
+        return positions;
+    }
+    if (section_references::is_section_label(type)) {
+        auto parsed = section_references::parse_number(name);
+        if (!parsed || parsed->end != name.size()) return {};
+        const auto target = parsed->number;
+        struct OutlineEntry {
+            section_references::Number number;
+            int page;
+        };
+        std::vector<OutlineEntry> outline;
+        std::function<void(const std::vector<TocNode*>&, const section_references::Number&)> collect;
+        collect = [&outline, &collect](const std::vector<TocNode*>& nodes,
+            const section_references::Number& parent) {
+            for (const auto* node : nodes) {
+                auto parsed_title = section_references::parse_title(node->title);
+                auto current = parent;
+                if (parsed_title) {
+                    current = section_references::resolve_outline_child(parent, parsed_title->number);
+                    outline.push_back({current, node->page});
                 }
-                if (length == 0 || title[length - 1] == L'.' ||
-                    (length < title.size() && title[length] != L' ' &&
-                     title[length] != L'\t' && title[length] != L'\0')) {
-                    return std::wstring{};
-                }
-                return title.substr(0, length);
-            };
+                collect(node->children, current);
+            }
+        };
+        {
+            std::lock_guard guard(document_indexing_mutex);
+            collect(get_toc(), {});
+        }
 
-            for (size_t i = 0; i < toc_names.size() && i < toc_pages.size(); i++) {
-                if (toc_number(toc_names[i]) != section_number) continue;
-                const int start_page = toc_pages[i];
-                if (start_page < 0 || start_page >= num_pages()) continue;
-
-                int end_page = std::min(num_pages(), start_page + 40);
-                for (size_t j = i + 1; j < toc_names.size() && j < toc_pages.size(); j++) {
-                    const std::wstring next_number = toc_number(toc_names[j]);
-                    if (next_number.empty() || next_number == section_number ||
-                        next_number.compare(0, section_number.size() + 1, section_number + L".") == 0) {
-                        continue;
+        auto scan_headings = [this, &target](int first_page, int end_page, bool letter_only) {
+            for (int page = first_page; page < end_page; page++) {
+                std::vector<std::wstring> texts;
+                const auto& rects = get_page_lines(page, &texts);
+                for (size_t i = 0; i < texts.size() && i < rects.size(); i++) {
+                    if (section_references::matches_heading(texts[i], target, letter_only)) {
+                        return std::optional<DocumentPos>(rects[i].top_left().to_document(this));
                     }
-                    if (toc_pages[j] > start_page) {
-                        end_page = std::min(end_page, toc_pages[j]);
+                }
+            }
+            return std::optional<DocumentPos>{};
+        };
+
+        // An exact outline entry wins; otherwise use its numbered parent to bound
+        // the search for a lettered subsection.
+        for (int pass = 0; pass < 2; pass++) {
+            for (size_t i = 0; i < outline.size(); i++) {
+                const bool exact = outline[i].number.key() == target.key();
+                const bool parent = target.suffix && !outline[i].number.suffix &&
+                    outline[i].number.base == target.base;
+                if ((pass == 0 && !exact) || (pass == 1 && !parent)) continue;
+
+                const int first_page = outline[i].page;
+                if (first_page < 0 || first_page >= num_pages()) continue;
+                int end_page = std::min(num_pages(), first_page + (exact ? 2 : 40));
+                if (parent) {
+                    for (size_t j = i + 1; j < outline.size(); j++) {
+                        const auto& next = outline[j];
+                        if (next.page <= first_page) continue;
+                        const std::wstring child_prefix = target.base + L".";
+                        if (next.number.base == target.base ||
+                            next.number.base.compare(0, child_prefix.size(), child_prefix) == 0) continue;
+                        end_page = std::min(end_page, next.page);
                         break;
                     }
                 }
-
-                std::wstring heading_number;
-                if (subsection_name.empty()) {
-                    for (wchar_t ch : section_number) {
-                        if (ch == L'.') heading_number += L"\\.";
-                        else heading_number += ch;
-                    }
-                }
-                else {
-                    heading_number = std::wstring(1, std::towupper(subsection_name[0])) + L"\\.";
-                }
-                const std::wregex heading_regex(L"^[ \\t]*" + heading_number + L"[ \\t]+\\S");
-                const int scan_end_page = subsection_name.empty()
-                    ? std::min(end_page, start_page + 2) : end_page;
-                for (int page = start_page; page < scan_end_page; page++) {
-                    std::vector<std::wstring> line_texts;
-                    const auto& line_rects = get_page_lines(page, &line_texts);
-                    for (size_t line = 0; line < line_texts.size() && line < line_rects.size(); line++) {
-                        if (std::regex_search(line_texts[line], heading_regex)) {
-                            return {line_rects[line].top_left().to_document(this)};
-                        }
-                    }
-                }
-                if (subsection_name.empty()) return {DocumentPos{start_page, 0, 0}};
-                break;
+                if (auto heading = scan_headings(first_page, end_page, parent)) return {*heading};
+                if (exact) return {DocumentPos{first_page, 0, 0}};
             }
         }
+
+        std::vector<IndexedSectionHeading> candidates;
+        {
+            std::lock_guard guard(document_indexing_mutex);
+            for (const auto& heading : section_headings) {
+                if (heading.number == target.key()) candidates.push_back(heading);
+            }
+        }
+        std::sort(candidates.begin(), candidates.end(), [](const auto& a, const auto& b) {
+            if (a.score != b.score) return a.score > b.score;
+            return a.position.page > b.position.page;
+        });
+        std::vector<DocumentPos> positions;
+        for (size_t i = 0; i < candidates.size() && i < 8; i++) {
+            positions.push_back(candidates[i].position);
+        }
+        return positions;
     }
 
     std::vector<std::pair<int, DocumentPos>> pos_scores;
@@ -1741,6 +1826,23 @@ std::optional<std::pair<std::wstring, std::wstring>> Document::get_generic_link_
     PagelessDocumentPos position,
     std::pair<int,
     int>* out_range) {
+
+    auto section_match = get_regex_match_at_position(
+        section_references::section_reference_regex(), flat_chars, position, out_range);
+    if (section_match) {
+        auto parsed = section_references::parse_title(*section_match);
+        if (parsed) return std::make_pair(std::wstring(L"section"), parsed->number.key());
+    }
+
+    auto equation_match = get_regex_match_at_position(
+        section_references::equation_reference_regex(), flat_chars, position, out_range);
+    if (equation_match) {
+        std::wsmatch parts;
+        if (std::regex_match(*equation_match, parts, section_references::equation_reference_regex())) {
+            auto key = section_references::equation_key(parts[2].str());
+            if (key) return std::make_pair(std::wstring(L"equation"), *key);
+        }
+    }
 
     std::wregex regex(L"[a-zA-Z]{3,}(\\.){0,1}[ \t]+[0-9]+(\\.[0-9]+)*(-[0-9]+)?[A-Za-z]?");
     std::optional<std::wstring> match_string = get_regex_match_at_position(regex, flat_chars, position, out_range);

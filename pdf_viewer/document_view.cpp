@@ -4,6 +4,7 @@
 #include "checksum.h"
 #include "database.h"
 #include "document.h"
+#include "reference_numbers.h"
 #include "qlogging.h"
 #include "utils.h"
 #include "config.h"
@@ -1418,15 +1419,18 @@ std::vector<SmartViewCandidate> DocumentView::find_line_definitions() {
                 return result;
             }
 
-            std::wstring item_regex(L"[a-zA-Z]{2,}\\.?[ \t]+[0-9]+(\\.[0-9]+)*(-[0-9]+)?[A-Za-z]?");
+            std::wstring item_regex = L"(" + section_references::section_reference_pattern() +
+                L")|(" + section_references::equation_reference_pattern() +
+                L")|([a-zA-Z]{2,}\\.?[ \t]+[0-9]+(\\.[0-9]+)*(-[0-9]+)?[A-Za-z]?)";
             std::wstring reference_regex(L"\\[[a-zA-Z0-9, ]+\\]");
-            std::wstring equation_regex(L"\\([0-9]+(\\.[0-9]+)*\\)");
+            std::wstring equation_regex = section_references::equation_tag_pattern();
 
             std::vector<std::pair<int, int>> generic_item_ranges;
             std::vector<std::pair<int, int>> reference_ranges;
             std::vector<std::pair<int, int>> equation_ranges;
 
-            std::vector<std::wstring> generic_item_texts = find_all_regex_matches(content, item_regex, &generic_item_ranges);
+            std::vector<std::wstring> generic_item_texts = find_all_regex_matches(content, item_regex,
+                &generic_item_ranges, std::regex_constants::icase);
             std::vector<std::wstring> reference_texts = find_all_regex_matches(content, reference_regex, &reference_ranges);
             std::vector<std::wstring> equation_texts = find_all_regex_matches(content, equation_regex, &equation_ranges);
 

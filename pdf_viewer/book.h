@@ -397,6 +397,11 @@ struct IndexedData {
     std::wstring text;
 };
 
+struct IndexedEquation {
+    IndexedData data;
+    int confidence = 0;
+};
+
 bool operator==(const Mark& lhs, const Mark& rhs);
 bool operator==(const BookMark& lhs, const BookMark& rhs);
 bool operator==(const Highlight& lhs, const Highlight& rhs);

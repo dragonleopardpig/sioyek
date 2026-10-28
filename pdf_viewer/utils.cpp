@@ -38,6 +38,7 @@
 #include <quuid.h>
 #include <qjsondocument.h>
 #include "path.h"
+#include "reference_numbers.h"
 
 #ifdef SIOYEK_ANDROID
 #include <QtCore/private/qandroidextras_p.h>
@@ -1414,23 +1415,20 @@ std::wstring find_first_regex_match(const std::wstring& haystack, const std::wst
 
 std::vector<std::wstring> find_all_regex_matches(std::wstring haystack,
     const std::wstring& regex_string,
-    std::vector<std::pair<int, int>>* match_ranges) {
+    std::vector<std::pair<int, int>>* match_ranges,
+    std::regex_constants::syntax_option_type flags) {
 
-    std::wregex regex(regex_string);
+    std::wregex regex(regex_string, flags);
     std::wsmatch match;
     std::vector<std::wstring> res;
     int skipped_length = 0;
 
     while (std::regex_search(haystack, match, regex)) {
-        for (size_t i = 0; i < match.size(); i++) {
-            if (match[i].matched) {
-                res.push_back(match[i].str());
-                if (match_ranges) {
-                    int begin_index = match[i].first - haystack.begin();
-                    int match_length = match[i].length();
-                    match_ranges->push_back(std::make_pair(skipped_length + begin_index, skipped_length + begin_index + match_length-1));
-                }
-            }
+        res.push_back(match.str());
+        if (match_ranges) {
+            int begin_index = match.position();
+            match_ranges->push_back(std::make_pair(skipped_length + begin_index,
+                skipped_length + begin_index + match.length() - 1));
         }
         skipped_length += match.prefix().length() + match.length();
         haystack = match.suffix();
@@ -1550,12 +1548,12 @@ void index_generic(const std::vector<fz_stext_char*>& flat_chars, int page_numbe
     }
 }
 
-void index_equations(const std::vector<fz_stext_char*>& flat_chars, int page_number, std::map<std::wstring, std::vector<IndexedData>>& indices) {
-    std::wregex regex(L"\\([0-9]+(\\.[0-9]+)*\\)");
+void index_equations(const std::vector<fz_stext_char*>& flat_chars, int page_number,
+    std::map<std::wstring, std::vector<IndexedEquation>>& indices) {
     std::vector<std::pair<int, int>> match_ranges;
     std::vector<std::wstring> match_texts;
 
-    find_regex_matches_in_stext_page(flat_chars, regex, match_ranges, match_texts);
+    find_regex_matches_in_stext_page(flat_chars, section_references::equation_tag_regex(), match_ranges, match_texts);
 
     for (size_t i = 0; i < match_ranges.size(); i++) {
         auto [start_index, end_index] = match_ranges[i];
@@ -1566,19 +1564,17 @@ void index_equations(const std::vector<fz_stext_char*>& flat_chars, int page_num
 
         // we expect the equation reference to be sufficiently separated from the rest of the text
         if (((start_index > 0) && are_stext_chars_far_enough_for_equation(flat_chars[start_index - 1], flat_chars[start_index]))) {
-
-            std::wstring match_text = match_texts[i].substr(1, match_texts[i].size() - 2);
+            auto key = section_references::equation_key(match_texts[i]);
+            if (!key) continue;
             IndexedData indexed_equation;
             indexed_equation.page = page_number;
-            indexed_equation.text = match_text;
+            indexed_equation.text = *key;
             indexed_equation.y_offset = flat_chars[start_index]->quad.ll.y;
-            if (indices.find(match_text) == indices.end()) {
-                indices[match_text] = std::vector<IndexedData>();
-                indices[match_text].push_back(indexed_equation);
-            }
-            else {
-                indices[match_text].push_back(indexed_equation);
-            }
+            const bool same_line_gap = std::abs(flat_chars[start_index - 1]->origin.y -
+                flat_chars[start_index]->origin.y) < flat_chars[start_index]->size / 2.0f;
+            const int confidence = (flat_chars[end_index]->next == nullptr ? 2 : 0) +
+                (same_line_gap ? 1 : 0);
+            indices[*key].push_back({indexed_equation, confidence});
         }
     }
 
