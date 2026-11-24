@@ -32,6 +32,7 @@ private:
     void create_tables();
     bool create_document_hash_table();
     bool create_highlights_table();
+    bool create_ai_notes_table();
 public:
     bool open(const std::wstring& local_db_file_path, const std::wstring& global_db_file_path);
     bool select_opened_book(const std::string& book_path, std::vector<OpenedBookState>& out_result);
@@ -49,6 +50,9 @@ public:
     //bool insert_bookmark_freetext(const std::string& checksum, const std::wstring& desc, float begin_x, float begin_y, float end_x, float end_y, float color_red, float color_green, float color_blue, float font_size, std::string font_face, std::wstring uuid);
     bool insert_bookmark_freetext(const std::string& checksum, const BookMark& bm);
     bool select_bookmark(const std::string& checksum, std::vector<BookMark>& out_result);
+    bool save_ai_note(const std::string& checksum, const AiNoteAnchor& anchor, const QString& markdown);
+    std::vector<AiNoteAnchor> select_ai_note_anchors(const std::string& checksum);
+    std::optional<QString> select_ai_note_markdown(const std::string& checksum, const QString& id);
     bool insert_portal(const std::string& src_checksum,
         const std::string& dst_checksum,
         float dst_offset_y,

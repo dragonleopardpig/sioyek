@@ -43,6 +43,11 @@ struct OverviewState {
     std::optional<std::string> overview_type;
 };
 
+struct AiNoteAnchor {
+    QString id;
+    DocumentPos position;
+};
+
 struct OpenedBookState {
     float zoom_level;
     float offset_x;

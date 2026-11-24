@@ -30,6 +30,7 @@ class QTextEdit;
 class QPlainTextEdit;
 class QProcess;
 class QTimer;
+class QToolButton;
 class QDragEvent;
 class QDropEvent;
 class QScrollBar;
@@ -1147,16 +1148,31 @@ public:
 #if defined(SIOYEK_JKQT_MATHTEXT_SUPPORT) && !defined(SIOYEK_ANDROID)
     void ask_ai(std::optional<AbsoluteRect> region = {}, bool choose_agent = false);
     void snip_document(const AbsoluteRect& region);
-    void show_ai_panel();
+    void show_ai_panel(std::optional<DocumentPos> position = {});
     void restore_document_layout_after_ai();
     void update_ai_layout();
+    void update_ai_note_markers();
+    void save_ai_note(const QString& markdown);
+    void open_ai_note(const AiNoteAnchor& anchor);
     AiPanel* ai_panel = nullptr;
     struct AiSnip {
         QString document;
         QString file;
-        int page;
+        DocumentPos position;
     };
     std::optional<AiSnip> recent_ai_snip;
+    struct AiNoteSource {
+        std::wstring document_path;
+        AiNoteAnchor anchor;
+    };
+    struct AiNoteMarker {
+        AiNoteAnchor anchor;
+        QToolButton* button = nullptr;
+    };
+    std::optional<AiNoteSource> ai_note_source;
+    Document* ai_note_document = nullptr;
+    std::optional<std::string> ai_note_checksum;
+    std::vector<AiNoteMarker> ai_note_markers;
     QProcess* ai_snip_process = nullptr;
     bool choose_agent_after_snip = false;
     bool restore_two_page_after_ai = false;

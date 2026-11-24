@@ -1291,6 +1291,73 @@ void DatabaseManager::create_tables() {
     create_highlights_table();
     create_links_table();
     create_document_hash_table();
+    create_ai_notes_table();
+}
+
+bool DatabaseManager::create_ai_notes_table() {
+    return run_schema_query(
+        "CREATE TABLE IF NOT EXISTS ai_notes ("
+        "id TEXT PRIMARY KEY NOT NULL, document_checksum TEXT NOT NULL,"
+        "page INTEGER NOT NULL, x REAL NOT NULL, y REAL NOT NULL, markdown TEXT NOT NULL);"
+        "CREATE INDEX IF NOT EXISTS ai_notes_document ON ai_notes (document_checksum);");
+}
+
+bool DatabaseManager::save_ai_note(const std::string& checksum, const AiNoteAnchor& anchor,
+                                  const QString& markdown) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex);
+    sqlite3_stmt* statement = nullptr;
+    const char* query = "INSERT INTO ai_notes (id, document_checksum, page, x, y, markdown)"
+        " VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET markdown = excluded.markdown;";
+    if (sqlite3_prepare_v2(global_db, query, -1, &statement, nullptr) != SQLITE_OK)
+        return false;
+
+    const QByteArray id = anchor.id.toUtf8();
+    const QByteArray body = markdown.toUtf8();
+    sqlite3_bind_text(statement, 1, id.constData(), id.size(), SQLITE_STATIC);
+    sqlite3_bind_text(statement, 2, checksum.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_int(statement, 3, anchor.position.page);
+    sqlite3_bind_double(statement, 4, anchor.position.x);
+    sqlite3_bind_double(statement, 5, anchor.position.y);
+    sqlite3_bind_text(statement, 6, body.constData(), body.size(), SQLITE_STATIC);
+    const bool saved = sqlite3_step(statement) == SQLITE_DONE;
+    sqlite3_finalize(statement);
+    return saved;
+}
+
+std::vector<AiNoteAnchor> DatabaseManager::select_ai_note_anchors(const std::string& checksum) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex);
+    std::vector<AiNoteAnchor> anchors;
+    sqlite3_stmt* statement = nullptr;
+    const char* query = "SELECT id, page, x, y FROM ai_notes WHERE document_checksum = ? ORDER BY rowid;";
+    if (sqlite3_prepare_v2(global_db, query, -1, &statement, nullptr) != SQLITE_OK)
+        return anchors;
+
+    sqlite3_bind_text(statement, 1, checksum.c_str(), -1, SQLITE_STATIC);
+    while (sqlite3_step(statement) == SQLITE_ROW) {
+        anchors.push_back({QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(statement, 0))),
+            {sqlite3_column_int(statement, 1), static_cast<float>(sqlite3_column_double(statement, 2)),
+             static_cast<float>(sqlite3_column_double(statement, 3))}});
+    }
+    sqlite3_finalize(statement);
+    return anchors;
+}
+
+std::optional<QString> DatabaseManager::select_ai_note_markdown(const std::string& checksum, const QString& id) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex);
+    sqlite3_stmt* statement = nullptr;
+    const char* query = "SELECT markdown FROM ai_notes WHERE document_checksum = ? AND id = ?;";
+    if (sqlite3_prepare_v2(global_db, query, -1, &statement, nullptr) != SQLITE_OK)
+        return {};
+
+    const QByteArray key = id.toUtf8();
+    sqlite3_bind_text(statement, 1, checksum.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(statement, 2, key.constData(), key.size(), SQLITE_STATIC);
+    std::optional<QString> markdown;
+    if (sqlite3_step(statement) == SQLITE_ROW)
+        markdown = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(statement, 0)),
+                                     sqlite3_column_bytes(statement, 0));
+    sqlite3_finalize(statement);
+    return markdown;
 }
 
 bool update_string_value(sqlite3* db,

@@ -16,6 +16,8 @@
 #include "coordinates.h"
 #include "ai_panel.h"
 #include <QPlainTextEdit>
+#include <QToolButton>
+#include <QUuid>
 #include <QClipboard>
 #include <QTextDocument>
 #include <iostream>
@@ -1970,6 +1972,9 @@ void MainWidget::validate_render() {
     validate_ui();
     update();
     if (opengl_widget != nullptr) {
+#if defined(SIOYEK_JKQT_MATHTEXT_SUPPORT) && !defined(SIOYEK_ANDROID)
+        update_ai_note_markers();
+#endif
         opengl_widget->update();
     }
 
@@ -12766,13 +12771,14 @@ void MainWidget::snip_document(const AbsoluteRect& region) {
     choose_agent_after_snip = false;
 
     const DocumentRect crop = region.to_document(doc());
+    const DocumentPos position{crop.page, crop.rect.x0, crop.rect.y0};
     const QString document = QString::fromStdWString(doc()->get_path());
-    recent_ai_snip = AiSnip{document, {}, crop.page};
+    recent_ai_snip = AiSnip{document, {}, position};
     const QString rectangle = QStringLiteral("%1,%2,%3,%4,%5").arg(crop.page)
         .arg(crop.rect.x0).arg(crop.rect.y0).arg(crop.rect.x1).arg(crop.rect.y1);
     auto* process = new QProcess(this);
     ai_snip_process = process;
-    auto finish = [this, process, document, page = crop.page](bool success) {
+    auto finish = [this, process, document, position](bool success) {
         process->deleteLater();
         if (ai_snip_process != process)
             return;
@@ -12788,7 +12794,7 @@ void MainWidget::snip_document(const AbsoluteRect& region) {
         if (file.endsWith('\r'))
             file.chop(1);
         if (success && QFileInfo(file).isFile()) {
-            recent_ai_snip = AiSnip{document, file, page};
+            recent_ai_snip = AiSnip{document, file, position};
             if (open_picker)
                 set_status_message(L"");
         } else {
@@ -12814,10 +12820,12 @@ void MainWidget::ask_ai(std::optional<AbsoluteRect> region, bool choose_agent) {
     QString excerpt;
     QString source;
     QImage snapshot;
+    std::optional<AiNoteSource> note;
     if (doc()) {
         int page = get_current_page_number();
+        std::optional<DocumentPos> position;
         if (region) {
-            page = region->to_document(doc()).page;
+            position = region->to_document(doc()).top_left();
             const WindowRect crop = region->to_window(main_document_view);
             clear_selected_rect();
             set_rect_select_mode(false);
@@ -12834,12 +12842,12 @@ void MainWidget::ask_ai(std::optional<AbsoluteRect> region, bool choose_agent) {
             snapshot = frame.copy(pixelBounds);
             snapshot.setDevicePixelRatio(1);
         } else if (!main_document_view->selected_character_rects.empty()) {
-            page = selection_begin.to_document(doc()).page;
+            position = main_document_view->selected_character_rects.front().top_left().to_document(doc());
             excerpt = QString::fromStdWString(get_selected_text());
         } else if (selected_highlight_index >= 0
                    && static_cast<size_t>(selected_highlight_index) < doc()->get_highlights().size()) {
             const auto& highlight = doc()->get_highlights().at(selected_highlight_index);
-            page = highlight.selection_begin.to_document(doc()).page;
+            position = highlight.selection_begin.to_document(doc());
             excerpt = QString::fromStdWString(highlight.description);
         } else if (choose_agent && recent_ai_snip
                    && recent_ai_snip->document == QString::fromStdWString(doc()->get_path())) {
@@ -12848,8 +12856,14 @@ void MainWidget::ask_ai(std::optional<AbsoluteRect> region, bool choose_agent) {
                 set_status_message(L"Preparing the snapshot for Ask AI…");
                 return;
             }
-            page = recent_ai_snip->page;
-            snapshot.load(recent_ai_snip->file);
+            if (snapshot.load(recent_ai_snip->file))
+                position = recent_ai_snip->position;
+        }
+        if (position) {
+            page = position->page;
+            if (page >= 0 && page < doc()->num_pages()) {
+                note = AiNoteSource{doc()->get_path(), {QUuid::createUuid().toString(QUuid::WithoutBraces), *position}};
+            }
         }
         source = tr("%1 · Page %2").arg(QFileInfo(QString::fromStdWString(doc()->get_path())).fileName()).arg(page + 1);
     }
@@ -12858,11 +12872,12 @@ void MainWidget::ask_ai(std::optional<AbsoluteRect> region, bool choose_agent) {
         choose_agent_after_snip = false;
     }
 
-    show_ai_panel();
+    ai_note_source = std::move(note);
+    show_ai_panel(ai_note_source ? std::optional(ai_note_source->anchor.position) : std::nullopt);
     ai_panel->beginConversation(source, excerpt, snapshot, choose_agent);
 }
 
-void MainWidget::show_ai_panel() {
+void MainWidget::show_ai_panel(std::optional<DocumentPos> position) {
     ai_panel_hidden_by_toggle = false;
     if (ai_panel && ai_panel->isVisible())
         return;
@@ -12875,6 +12890,7 @@ void MainWidget::show_ai_panel() {
         setAnimated(false);
         addDockWidget(Qt::RightDockWidgetArea, ai_panel);
         connect(ai_panel, &AiPanel::toggleRequested, this, &MainWidget::handle_toggle_two_page_mode);
+        connect(ai_panel, &AiPanel::noteMarkdownReady, this, &MainWidget::save_ai_note);
         connect(ai_panel, &AiPanel::closed, this, [this] {
             QTimer::singleShot(0, this, [this] {
                 if (!ai_panel->isVisible()) {
@@ -12886,7 +12902,128 @@ void MainWidget::show_ai_panel() {
     }
     ai_panel->show();
     resizeDocks({ai_panel}, {width() / 2}, Qt::Horizontal);
-    QTimer::singleShot(0, this, &MainWidget::update_ai_layout);
+    QTimer::singleShot(0, this, [this, document = doc(), position] {
+        update_ai_layout();
+        if (position && doc() == document && ai_panel->isVisible()) {
+            const auto pixel = position->to_window(main_document_view);
+            if (!opengl_widget->rect().contains(pixel.x, pixel.y)) {
+                main_document_view->goto_offset_within_page(position->page, position->y);
+                invalidate_render();
+            }
+        }
+    });
+}
+
+void MainWidget::save_ai_note(const QString& markdown) {
+    if (!ai_note_source)
+        return;
+    const auto& source = *ai_note_source;
+    const std::string checksum = checksummer->get_checksum(source.document_path);
+    if (checksum.empty() || !db_manager->save_ai_note(checksum, source.anchor, markdown)) {
+        ai_panel->reportNoteSaveFailure();
+        return;
+    }
+    if (doc() == ai_note_document && ai_note_checksum == checksum &&
+        std::none_of(ai_note_markers.begin(), ai_note_markers.end(), [&source](const AiNoteMarker& marker) {
+            return marker.anchor.id == source.anchor.id;
+        })) {
+        ai_note_markers.push_back({source.anchor});
+    }
+    invalidate_render();
+}
+
+void MainWidget::open_ai_note(const AiNoteAnchor& anchor) {
+    if (!ai_note_checksum || doc() != ai_note_document)
+        return;
+    const auto markdown = db_manager->select_ai_note_markdown(*ai_note_checksum, anchor.id);
+    if (!markdown) {
+        set_status_message(tr("Could not open the saved AI answer.").toStdWString());
+        return;
+    }
+    ai_note_source.reset();
+    show_ai_panel(anchor.position);
+    ai_panel->showSavedNote(*markdown);
+}
+
+void MainWidget::update_ai_note_markers() {
+    auto* document = doc();
+    if (ai_note_document != document) {
+        for (const auto& marker : ai_note_markers) {
+            if (marker.button) {
+                marker.button->hide();
+                marker.button->deleteLater();
+            }
+        }
+        ai_note_markers.clear();
+        ai_note_checksum.reset();
+        ai_note_document = document;
+    }
+    if (!document)
+        return;
+    if (!ai_note_checksum) {
+        const auto checksum = document->get_checksum_fast();
+        if (!checksum || checksum->empty())
+            return;
+        ai_note_checksum = *checksum;
+        for (const auto& anchor : db_manager->select_ai_note_anchors(*checksum))
+            ai_note_markers.push_back({anchor});
+    }
+    if (ai_note_markers.empty())
+        return;
+
+    const QRect viewport = opengl_widget->rect();
+    constexpr int size = 20;
+    std::vector<int> visible_pages;
+    if (!opengl_widget->get_scratchpad() && !rect_select_mode && !is_rotated() && !opengl_widget->get_overview_page()
+        && document->can_use_highlights() && viewport.width() >= size) {
+        main_document_view->get_visible_pages(viewport.height(), visible_pages);
+    }
+    std::vector<QRect> occupied;
+    for (auto& marker : ai_note_markers) {
+        const auto& position = marker.anchor.position;
+        QRect bounds;
+        if (std::find(visible_pages.begin(), visible_pages.end(), position.page) != visible_pages.end()) {
+            const auto pixel = position.to_window(main_document_view);
+            if (viewport.contains(pixel.x, pixel.y)) {
+                bounds = QRect(std::max(0, pixel.x - size - 4), std::max(0, pixel.y - 2), size, size);
+                while (std::any_of(occupied.begin(), occupied.end(), [&bounds](const QRect& other) {
+                    return bounds.intersects(other);
+                })) {
+                    if (bounds.right() + size + 2 < viewport.right())
+                        bounds.translate(size + 2, 0);
+                    else
+                        bounds.moveTo(0, bounds.y() + size + 2);
+                }
+            }
+        }
+        if (bounds.isEmpty() || !viewport.contains(bounds)) {
+            if (marker.button)
+                marker.button->hide();
+            continue;
+        }
+        occupied.push_back(bounds);
+        if (!marker.button) {
+            // The OpenGL canvas is mouse-transparent. Put clickable markers above it.
+            auto* button = new QToolButton(central_widget);
+            button->setObjectName(QStringLiteral("aiNoteMarker"));
+            button->setAccessibleName(tr("Read saved AI answer"));
+            button->setToolTip(button->accessibleName());
+            button->setCursor(Qt::PointingHandCursor);
+            button->setIcon(QIcon(QStringLiteral(":/icons/question.svg")));
+            button->setIconSize(QSize(14, 14));
+            button->setFocusPolicy(Qt::ClickFocus);
+            button->setAttribute(Qt::WA_NoMousePropagation);
+            button->setStyleSheet(QStringLiteral(
+                "QToolButton { background: #174c91; border: 1px solid white; border-radius: 4px; padding: 1px; }"
+                "QToolButton:hover, QToolButton:focus { background: #245fab; }"));
+            connect(button, &QToolButton::clicked, this, [this, anchor = marker.anchor] { open_ai_note(anchor); });
+            button->raise();
+            marker.button = button;
+        }
+        bounds.moveTopLeft(opengl_widget->mapTo(central_widget, bounds.topLeft()));
+        marker.button->setGeometry(bounds);
+        marker.button->show();
+    }
 }
 
 void MainWidget::restore_document_layout_after_ai() {
