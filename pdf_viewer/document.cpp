@@ -1,4 +1,5 @@
 #include "document.h"
+#include <string_view>
 #include <algorithm>
 #include <cwctype>
 #include <functional>
@@ -868,7 +869,12 @@ void Document::convert_toc_tree(fz_outline* root, std::vector<TocNode*>& output)
             }
 
                 TocNode* current_node = new TocNode;
-                current_node->title = utf8_decode(root->title);
+                // MuPDF encodes NUL as C0 80, which Qt's UTF-8 decoder rejects.
+                constexpr std::string_view encoded_nul = "\xC0\x80";
+                std::string_view title(root->title);
+                while (title.ends_with(encoded_nul))
+                    title.remove_suffix(encoded_nul.size());
+                current_node->title = QString::fromUtf8(title.data(), title.size()).toStdWString();
                 current_node->x = root->x;
                 current_node->y = root->y;
             if (root->page.page == -1) {
