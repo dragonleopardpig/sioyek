@@ -28,6 +28,7 @@ class QLocalSocket;
 class QLineEdit;
 class QTextEdit;
 class QPlainTextEdit;
+class QProcess;
 class QTimer;
 class QDragEvent;
 class QDropEvent;
@@ -1143,9 +1144,18 @@ public:
     void handle_move_smooth_horizontal_hold(bool left);
     void handle_toggle_two_page_mode();
 #if defined(SIOYEK_JKQT_MATHTEXT_SUPPORT) && !defined(SIOYEK_ANDROID)
-    void ask_ai(std::optional<AbsoluteRect> region = {});
+    void ask_ai(std::optional<AbsoluteRect> region = {}, bool choose_agent = false);
+    void snip_document(const AbsoluteRect& region);
     void update_ai_layout();
     AiPanel* ai_panel = nullptr;
+    struct AiSnip {
+        QString document;
+        QString file;
+        int page;
+    };
+    std::optional<AiSnip> recent_ai_snip;
+    QProcess* ai_snip_process = nullptr;
+    bool choose_agent_after_snip = false;
     bool restore_two_page_after_ai = false;
 #endif
     void ensure_zero_interval_timer();

@@ -27,6 +27,7 @@
 #include <unordered_map>
 #include <optional>
 #include <memory>
+#include <utility>
 #include <cctype>
 #include <cstdlib>
 #include <qpainterpath.h>
@@ -12732,7 +12733,61 @@ void MainWidget::handle_toggle_two_page_mode() {
 }
 
 #if defined(SIOYEK_JKQT_MATHTEXT_SUPPORT) && !defined(SIOYEK_ANDROID)
-void MainWidget::ask_ai(std::optional<AbsoluteRect> region) {
+void MainWidget::snip_document(const AbsoluteRect& region) {
+    clear_selected_rect();
+    set_rect_select_mode(false);
+    if (!doc())
+        return;
+
+    clear_selected_text();
+    set_selected_highlight_index(-1);
+    choose_agent_after_snip = false;
+
+    const DocumentRect crop = region.to_document(doc());
+    const QString document = QString::fromStdWString(doc()->get_path());
+    recent_ai_snip = AiSnip{document, {}, crop.page};
+    const QString rectangle = QStringLiteral("%1,%2,%3,%4,%5").arg(crop.page)
+        .arg(crop.rect.x0).arg(crop.rect.y0).arg(crop.rect.x1).arg(crop.rect.y1);
+    auto* process = new QProcess(this);
+    ai_snip_process = process;
+    auto finish = [this, process, document, page = crop.page](bool success) {
+        process->deleteLater();
+        if (ai_snip_process != process)
+            return;
+        ai_snip_process = nullptr;
+        const bool open_picker = std::exchange(choose_agent_after_snip, false);
+        if (!doc() || QString::fromStdWString(doc()->get_path()) != document) {
+            recent_ai_snip.reset();
+            return;
+        }
+        QString file = QString::fromUtf8(process->readAllStandardOutput());
+        if (file.endsWith('\n'))
+            file.chop(1);
+        if (file.endsWith('\r'))
+            file.chop(1);
+        if (success && QFileInfo(file).isFile()) {
+            recent_ai_snip = AiSnip{document, file, page};
+            if (open_picker)
+                set_status_message(L"");
+        } else {
+            recent_ai_snip.reset();
+            set_status_message(L"Could not save the document snapshot.");
+        }
+        if (open_picker)
+            ask_ai({}, true);
+    };
+    connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+            [finish](int code, QProcess::ExitStatus status) {
+        finish(code == 0 && status == QProcess::NormalExit);
+    });
+    connect(process, &QProcess::errorOccurred, this, [finish](QProcess::ProcessError error) {
+        if (error == QProcess::FailedToStart)
+            finish(false);
+    });
+    process->start(QStringLiteral("sioyek-snip"), {rectangle, document});
+}
+
+void MainWidget::ask_ai(std::optional<AbsoluteRect> region, bool choose_agent) {
     QString excerpt;
     QString source;
     QImage snapshot;
@@ -12763,8 +12818,21 @@ void MainWidget::ask_ai(std::optional<AbsoluteRect> region) {
             const auto& highlight = doc()->get_highlights().at(selected_highlight_index);
             page = highlight.selection_begin.to_document(doc()).page;
             excerpt = QString::fromStdWString(highlight.description);
+        } else if (choose_agent && recent_ai_snip
+                   && recent_ai_snip->document == QString::fromStdWString(doc()->get_path())) {
+            if (ai_snip_process) {
+                choose_agent_after_snip = true;
+                set_status_message(L"Preparing the snapshot for Ask AI…");
+                return;
+            }
+            page = recent_ai_snip->page;
+            snapshot.load(recent_ai_snip->file);
         }
         source = tr("%1 · Page %2").arg(QFileInfo(QString::fromStdWString(doc()->get_path())).fileName()).arg(page + 1);
+    }
+    if (choose_agent) {
+        recent_ai_snip.reset();
+        choose_agent_after_snip = false;
     }
 
     const bool opening = !ai_panel || !ai_panel->isVisible();
@@ -12792,7 +12860,7 @@ void MainWidget::ask_ai(std::optional<AbsoluteRect> region) {
     ai_panel->show();
     if (opening)
         resizeDocks({ai_panel}, {width() / 2}, Qt::Horizontal);
-    ai_panel->beginConversation(source, excerpt, snapshot);
+    ai_panel->beginConversation(source, excerpt, snapshot, choose_agent);
     QTimer::singleShot(0, this, &MainWidget::update_ai_layout);
 }
 

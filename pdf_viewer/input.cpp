@@ -2309,6 +2309,33 @@ public:
 private:
     std::optional<AbsoluteRect> region;
 };
+
+class AskAiChooseAgent : public Command {
+public:
+    static inline const std::string cname = "ask_ai_choose_agent";
+    static inline const std::string hname = "Ask AI and choose an agent";
+    explicit AskAiChooseAgent(MainWidget* widget) : Command(cname, widget) {}
+    void perform() override { widget->ask_ai({}, true); }
+};
+
+class SnipDocument : public Command {
+public:
+    static inline const std::string cname = "snip_document";
+    static inline const std::string hname = "Take a document snapshot";
+    explicit SnipDocument(MainWidget* widget) : Command(cname, widget) {}
+
+    std::optional<Requirement> next_requirement(MainWidget*) override {
+        if (!region)
+            return Requirement{RequirementType::Rect, "Select a region to snapshot"};
+        return {};
+    }
+
+    void set_rect_requirement(AbsoluteRect rect) override { region = rect; }
+    void perform() override { widget->snip_document(*region); }
+
+private:
+    std::optional<AbsoluteRect> region;
+};
 #endif
 
 class CopyScreenshotToClipboard : public Command {
@@ -7582,6 +7609,8 @@ CommandManager::CommandManager(ConfigManager* config_manager) {
 #if defined(SIOYEK_JKQT_MATHTEXT_SUPPORT) && !defined(SIOYEK_ANDROID)
     register_command<AskAi>();
     register_command<AskAiSnapshot>();
+    register_command<AskAiChooseAgent>();
+    register_command<SnipDocument>();
 #endif
     register_command<AddHighlightCommand>();
     register_command<GotoTableOfContentsCommand>();

@@ -22,7 +22,8 @@ class AiPanel : public QDockWidget {
 public:
     explicit AiPanel(QWidget* parent);
     ~AiPanel() override;
-    void beginConversation(const QString& source, const QString& excerpt, const QImage& snapshot);
+    void beginConversation(const QString& source, const QString& excerpt, const QImage& snapshot,
+                           bool chooseAgent = false);
 
 signals:
     void closed();

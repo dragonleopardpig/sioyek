@@ -197,6 +197,9 @@ AiPanel::AiPanel(QWidget* parent)
     setWidget(content);
     setMinimumWidth(260);
     connect(question, &QLineEdit::returnPressed, this, &AiPanel::submit);
+    connect(agent, QOverload<int>::of(&QComboBox::activated), this, [this](int) {
+        QTimer::singleShot(0, question, [this] { question->setFocus(Qt::OtherFocusReason); });
+    });
     connect(send, &QPushButton::clicked, this, [this] {
         if (pending || agentProcess)
             stopRequest();
@@ -209,7 +212,8 @@ AiPanel::~AiPanel() {
     stopRequest();
 }
 
-void AiPanel::beginConversation(const QString& context, const QString& text, const QImage& image) {
+void AiPanel::beginConversation(const QString& context, const QString& text, const QImage& image,
+                                bool chooseAgent) {
     stopRequest();
     source = context;
     excerpt = text;
@@ -248,7 +252,16 @@ void AiPanel::beginConversation(const QString& context, const QString& text, con
     } else if (!excerpt.isEmpty()) {
         appendMessage(tr("Selected text"), excerpt, false);
     }
-    question->setFocus(Qt::OtherFocusReason);
+    if (chooseAgent) {
+        QTimer::singleShot(0, agent, [this] {
+            if (isVisible()) {
+                agent->setFocus(Qt::ShortcutFocusReason);
+                agent->showPopup();
+            }
+        });
+    } else {
+        question->setFocus(Qt::OtherFocusReason);
+    }
 }
 
 void AiPanel::closeEvent(QCloseEvent* event) {
