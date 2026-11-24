@@ -3,6 +3,7 @@
         <file>tutorial.pdf</file>
         <file>pdf_viewer/keys.config</file>
         <file>pdf_viewer/prefs.config</file>
+        <file>scripts/ask_ai_agent.py</file>
         <file>pdf_viewer/shaders/custom_colors.fragment</file>
         <file>pdf_viewer/shaders/dark_mode.fragment</file>
         <file>pdf_viewer/shaders/debug.fragment</file>

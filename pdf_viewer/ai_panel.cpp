@@ -5,6 +5,8 @@
 #include <QBuffer>
 #include <QCloseEvent>
 #include <QComboBox>
+#include <QDir>
+#include <QFile>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QJsonDocument>
@@ -20,6 +22,7 @@
 #include <QProcess>
 #include <QRegularExpression>
 #include <QScrollBar>
+#include <QStandardPaths>
 #include <QTextBrowser>
 #include <QTextCursor>
 #include <QTextDocumentFragment>
@@ -30,6 +33,9 @@
 #include <jkqtmathtext/jkqtmathtext.h>
 #include <utility>
 #include <vector>
+#ifdef Q_OS_UNIX
+#include <signal.h>
+#endif
 
 extern std::wstring AI_CHAT_MODEL;
 extern std::wstring AI_CHAT_API_URL;
@@ -38,7 +44,24 @@ extern std::wstring AI_CHAT_AGENT_COMMAND;
 
 namespace {
 
-enum Agent { Ollama, CompatibleApi, Command };
+enum Agent { Ollama, CompatibleApi, Command, Codex, ClaudeCode, Antigravity };
+
+QString agentExecutable(Agent agent) {
+    switch (agent) {
+    case Codex: return QStringLiteral("codex");
+    case ClaudeCode: return QStringLiteral("claude");
+    case Antigravity: return QStringLiteral("agy");
+    default: return {};
+    }
+}
+
+QString findAgentExecutable(const QString& name) {
+    const QString executable = QStandardPaths::findExecutable(name);
+    if (!executable.isEmpty())
+        return executable;
+    return QStandardPaths::findExecutable(name, {
+        QDir::home().filePath(QStringLiteral(".local/bin")), QStringLiteral("/run/current-system/sw/bin")});
+}
 
 // Allow images added to the document by the formula renderer. Leave links
 // and remote resources in model output inert.
@@ -198,13 +221,21 @@ void AiPanel::beginConversation(const QString& context, const QString& text, con
     equationNumber = 0;
     const QVariant previous = agent->currentData();
     agent->clear();
+    if (!findAgentExecutable(QStringLiteral("python3")).isEmpty()) {
+        if (!findAgentExecutable(agentExecutable(Codex)).isEmpty())
+            agent->addItem(tr("Codex"), Codex);
+        if (!findAgentExecutable(agentExecutable(Antigravity)).isEmpty())
+            agent->addItem(tr("Antigravity"), Antigravity);
+        if (!findAgentExecutable(agentExecutable(ClaudeCode)).isEmpty())
+            agent->addItem(tr("Claude Code"), ClaudeCode);
+    }
     agent->addItem(tr("Ollama · %1").arg(QString::fromStdWString(AI_CHAT_MODEL)), Ollama);
     agent->addItem(AI_CHAT_API_MODEL.empty() ? tr("OpenAI-compatible API")
                                            : tr("API · %1").arg(QString::fromStdWString(AI_CHAT_API_MODEL)),
                    CompatibleApi);
     agent->addItem(tr("External agent"), Command);
     const int previousIndex = agent->findData(previous);
-    agent->setCurrentIndex(previousIndex >= 0 ? previousIndex : 0);
+    agent->setCurrentIndex(previousIndex >= 0 ? previousIndex : agent->findData(Ollama));
     agent->setEnabled(true);
     attachment->setText(source);
     attachment->setVisible(!source.isEmpty());
@@ -289,7 +320,18 @@ void AiPanel::stopRequest() {
     } else if (agentProcess) {
         auto* process = agentProcess.data();
         agentProcess.clear();
+#if defined(Q_OS_UNIX) && QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
+        if (process->processId() > 0 && ::kill(-process->processId(), SIGTERM) == 0) {
+            QTimer::singleShot(2000, process, [process] {
+                if (process->processId() > 0)
+                    ::kill(-process->processId(), SIGKILL);
+            });
+        } else {
+            process->kill();
+        }
+#else
         process->kill();
+#endif
     } else {
         return;
     }
@@ -304,13 +346,27 @@ void AiPanel::submit() {
         return;
     const auto selection = static_cast<Agent>(agent->currentData().toInt());
     const bool useApi = selection == CompatibleApi;
+    const QString nativeAgent = agentExecutable(selection);
     if (useApi && (AI_CHAT_API_URL.empty() || AI_CHAT_API_MODEL.empty())) {
         status->setText(tr("Set ai_chat_api_url and ai_chat_api_model in prefs_user.config."));
         return;
     }
-    if (selection == Command && AI_CHAT_AGENT_COMMAND.empty()) {
-        status->setText(tr("Set ai_chat_agent_command in prefs_user.config."));
-        return;
+    QStringList invocation;
+    if (selection == Command) {
+        invocation = QProcess::splitCommand(QString::fromStdWString(AI_CHAT_AGENT_COMMAND));
+        if (invocation.isEmpty()) {
+            status->setText(tr("Set ai_chat_agent_command in prefs_user.config."));
+            return;
+        }
+    } else if (!nativeAgent.isEmpty()) {
+        const QString python = findAgentExecutable(QStringLiteral("python3"));
+        const QString executable = findAgentExecutable(nativeAgent);
+        QFile adapter(QStringLiteral(":/scripts/ask_ai_agent.py"));
+        if (python.isEmpty() || executable.isEmpty() || !adapter.open(QIODevice::ReadOnly)) {
+            status->setText(tr("Could not start %1. Check that the agent and Python 3 are installed.").arg(agent->currentText()));
+            return;
+        }
+        invocation = QStringList{python, QStringLiteral("-c"), QString::fromUtf8(adapter.readAll()), nativeAgent, executable};
     }
 
     QJsonObject user{{QStringLiteral("role"), QStringLiteral("user")}};
@@ -356,13 +412,11 @@ void AiPanel::submit() {
     send->setText(tr("Cancel"));
     agent->setEnabled(false);
 
-    if (selection == Command) {
-        QStringList invocation = QProcess::splitCommand(QString::fromStdWString(AI_CHAT_AGENT_COMMAND));
-        if (invocation.isEmpty()) {
-            finishRequest(user, prompt, {}, tr("The external agent command is empty."));
-            return;
-        }
+    if (!invocation.isEmpty()) {
         auto* process = new QProcess(this);
+#if defined(Q_OS_UNIX) && QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
+        process->setUnixProcessParameters(QProcess::UnixProcessFlag::CreateNewSession);
+#endif
         agentProcess = process;
         const QString program = invocation.takeFirst();
         const auto input = QJsonDocument(QJsonObject{{QStringLiteral("messages"), messages}}).toJson(QJsonDocument::Compact);
