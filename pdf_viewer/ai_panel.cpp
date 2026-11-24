@@ -184,6 +184,8 @@ AiPanel::AiPanel(QWidget* parent)
       send(new QPushButton(tr("Send"))),
       zoomReset(new QPushButton) {
     setObjectName(QStringLiteral("askAiDock"));
+    // Unhandled clicks in the dock must stay out of the PDF's mouse handlers.
+    setAttribute(Qt::WA_NoMousePropagation);
     setAllowedAreas(Qt::RightDockWidgetArea);
     setFeatures(QDockWidget::DockWidgetClosable);
 
@@ -381,13 +383,18 @@ void AiPanel::applyTheme() {
         colors.setColor(QPalette::Button, background);
         colors.setColor(QPalette::ButtonText, text);
         colors.setColor(QPalette::Link, link);
+        // Use a list popup so Qt applies the pane's item colors instead of the desktop menu palette.
         widget()->setStyleSheet(QStringLiteral(
             "QWidget#aiPaneContent { background-color: %1; }"
-            "QTextBrowser, QLineEdit, QComboBox QAbstractItemView { background-color: %2; color: %3; }"
+            "QTextBrowser, QLineEdit { background-color: %2; color: %3; }"
             "QLabel { color: %3; }"
             "QLineEdit, QPushButton, QComboBox { border: 1px solid %4; border-radius: 3px; padding: 3px; }"
-            "QPushButton, QComboBox { background-color: %1; color: %3; }")
-            .arg(background.name(), paper.name(), text.name(), border.name()));
+            "QPushButton, QComboBox { background-color: %1; color: %3; }"
+            "QComboBox { combobox-popup: 0; }"
+            "QComboBox QAbstractItemView { background-color: %2; color: %3; border: 1px solid %4; "
+            "selection-background-color: %5; selection-color: %2; }"
+            "QComboBox QAbstractItemView::item:selected { background-color: %5; color: %2; }")
+            .arg(background.name(), paper.name(), text.name(), border.name(), link.name()));
     }
     setPalette(colors);
     rebuildTranscript();
