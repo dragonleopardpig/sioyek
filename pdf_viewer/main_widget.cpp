@@ -12806,7 +12806,8 @@ void MainWidget::snip_document(const AbsoluteRect& region) {
         if (error == QProcess::FailedToStart)
             finish(false);
     });
-    process->start(QStringLiteral("sioyek-snip"), {rectangle, document});
+    const QString helper = qEnvironmentVariable("SIOYEK_SNIP_BINARY", "sioyek-snip");
+    process->start(helper, {rectangle, document});
 }
 
 void MainWidget::ask_ai(std::optional<AbsoluteRect> region, bool choose_agent) {
