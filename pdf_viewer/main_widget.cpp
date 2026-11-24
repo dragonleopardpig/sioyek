@@ -3725,6 +3725,18 @@ void MainWidget::mousePressEvent(QMouseEvent* mevent) {
 
 void MainWidget::wheelEvent(QWheelEvent* wevent) {
 
+#if defined(SIOYEK_JKQT_MATHTEXT_SUPPORT) && !defined(SIOYEK_ANDROID)
+#ifdef SIOYEK_QT6
+    const QPoint mouse_global_pos = wevent->globalPosition().toPoint();
+#else
+    const QPoint mouse_global_pos = wevent->globalPos();
+#endif
+    if (ai_panel && ai_panel->isVisible()
+        && ai_panel->rect().contains(ai_panel->mapFromGlobal(mouse_global_pos))) {
+        wevent->accept();
+        return;
+    }
+#endif
     if (IGNORE_SCROLL_EVENTS) return;
 
     float vertical_move_amount = VERTICAL_MOVE_AMOUNT * TOUCHPAD_SENSITIVITY;
@@ -12716,11 +12728,21 @@ void MainWidget::handle_move_smooth_hold(bool down) {
 void MainWidget::handle_toggle_two_page_mode() {
 #if defined(SIOYEK_JKQT_MATHTEXT_SUPPORT) && !defined(SIOYEK_ANDROID)
     if (ai_panel && ai_panel->isVisible()) {
-        restore_two_page_after_ai = true;
-        ai_panel->close();
+        ai_panel_hidden_by_toggle = true;
+        ai_panel->hide();
+        restore_document_layout_after_ai();
+        return;
+    }
+    if (ai_panel_hidden_by_toggle) {
+        show_ai_panel();
+        ai_panel->focusQuestion();
         return;
     }
 #endif
+    toggle_document_spread();
+}
+
+void MainWidget::toggle_document_spread() {
     main_document_view->toggle_two_page();
     if (NUM_CACHED_PAGES < 6) {
         if (main_document_view->is_two_page_mode()) {
@@ -12835,33 +12857,43 @@ void MainWidget::ask_ai(std::optional<AbsoluteRect> region, bool choose_agent) {
         choose_agent_after_snip = false;
     }
 
-    const bool opening = !ai_panel || !ai_panel->isVisible();
-    if (opening) {
-        restore_two_page_after_ai = main_document_view->is_two_page_mode();
-        if (restore_two_page_after_ai)
-            handle_toggle_two_page_mode();
-    }
+    show_ai_panel();
+    ai_panel->beginConversation(source, excerpt, snapshot, choose_agent);
+}
+
+void MainWidget::show_ai_panel() {
+    ai_panel_hidden_by_toggle = false;
+    if (ai_panel && ai_panel->isVisible())
+        return;
+
+    restore_two_page_after_ai = main_document_view->is_two_page_mode();
+    if (restore_two_page_after_ai)
+        toggle_document_spread();
     if (!ai_panel) {
         ai_panel = new AiPanel(this);
         setAnimated(false);
         addDockWidget(Qt::RightDockWidgetArea, ai_panel);
+        connect(ai_panel, &AiPanel::toggleRequested, this, &MainWidget::handle_toggle_two_page_mode);
         connect(ai_panel, &AiPanel::closed, this, [this] {
             QTimer::singleShot(0, this, [this] {
-                if (ai_panel->isVisible())
-                    return;
-                if (restore_two_page_after_ai && !main_document_view->is_two_page_mode())
-                    handle_toggle_two_page_mode();
-                restore_two_page_after_ai = false;
-                update_ai_layout();
-                setFocus(Qt::OtherFocusReason);
+                if (!ai_panel->isVisible()) {
+                    ai_panel_hidden_by_toggle = false;
+                    restore_document_layout_after_ai();
+                }
             });
         });
     }
     ai_panel->show();
-    if (opening)
-        resizeDocks({ai_panel}, {width() / 2}, Qt::Horizontal);
-    ai_panel->beginConversation(source, excerpt, snapshot, choose_agent);
+    resizeDocks({ai_panel}, {width() / 2}, Qt::Horizontal);
     QTimer::singleShot(0, this, &MainWidget::update_ai_layout);
+}
+
+void MainWidget::restore_document_layout_after_ai() {
+    if (restore_two_page_after_ai && !main_document_view->is_two_page_mode())
+        toggle_document_spread();
+    restore_two_page_after_ai = false;
+    update_ai_layout();
+    setFocus(Qt::OtherFocusReason);
 }
 
 void MainWidget::update_ai_layout() {

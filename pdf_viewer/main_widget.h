@@ -1143,9 +1143,12 @@ public:
     void handle_move_smooth_hold(bool down);
     void handle_move_smooth_horizontal_hold(bool left);
     void handle_toggle_two_page_mode();
+    void toggle_document_spread();
 #if defined(SIOYEK_JKQT_MATHTEXT_SUPPORT) && !defined(SIOYEK_ANDROID)
     void ask_ai(std::optional<AbsoluteRect> region = {}, bool choose_agent = false);
     void snip_document(const AbsoluteRect& region);
+    void show_ai_panel();
+    void restore_document_layout_after_ai();
     void update_ai_layout();
     AiPanel* ai_panel = nullptr;
     struct AiSnip {
@@ -1157,6 +1160,7 @@ public:
     QProcess* ai_snip_process = nullptr;
     bool choose_agent_after_snip = false;
     bool restore_two_page_after_ai = false;
+    bool ai_panel_hidden_by_toggle = false;
 #endif
     void ensure_zero_interval_timer();
     void set_last_performed_command(std::unique_ptr<Command> command);

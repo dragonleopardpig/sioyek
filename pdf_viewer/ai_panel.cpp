@@ -2,6 +2,7 @@
 
 #if defined(SIOYEK_JKQT_MATHTEXT_SUPPORT) && !defined(SIOYEK_ANDROID)
 
+#include <QApplication>
 #include <QBuffer>
 #include <QCloseEvent>
 #include <QComboBox>
@@ -22,6 +23,8 @@
 #include <QProcess>
 #include <QRegularExpression>
 #include <QScrollBar>
+#include <QSettings>
+#include <QShortcut>
 #include <QStandardPaths>
 #include <QTextBrowser>
 #include <QTextCursor>
@@ -29,8 +32,10 @@
 #include <QTextImageFormat>
 #include <QVBoxLayout>
 #include <QTimer>
+#include <QWheelEvent>
 #include <QtMath>
 #include <jkqtmathtext/jkqtmathtext.h>
+#include <algorithm>
 #include <utility>
 #include <vector>
 #ifdef Q_OS_UNIX
@@ -45,6 +50,14 @@ extern std::wstring AI_CHAT_AGENT_COMMAND;
 namespace {
 
 enum Agent { Ollama, CompatibleApi, Command, Codex, ClaudeCode, Antigravity };
+
+constexpr int ZoomStep = 25;
+constexpr int MinimumZoom = 75;
+constexpr int MaximumZoom = 200;
+
+QSettings paneSettings() {
+    return QSettings(QStringLiteral("sioyek"), QStringLiteral("AskAI"));
+}
 
 QString agentExecutable(Agent agent) {
     switch (agent) {
@@ -71,6 +84,10 @@ public:
 
 protected:
     QVariant loadResource(int, const QUrl&) override { return {}; }
+    void wheelEvent(QWheelEvent* event) override {
+        QTextBrowser::wheelEvent(event);
+        event->accept();
+    }
 };
 
 struct Equation {
@@ -103,10 +120,10 @@ QString protectEquations(const QString& markdown, std::vector<Equation>& equatio
     return prepared + markdown.mid(offset);
 }
 
-QPixmap renderEquation(const Equation& equation, const QColor& color) {
+QPixmap renderEquation(const Equation& equation, const QColor& color, qreal zoom) {
     JKQTMathText math;
     math.useXITS();
-    math.setFontSizePixels(equation.display ? 23 : 16);
+    math.setFontSizePixels((equation.display ? 23 : 16) * zoom);
     math.setFontColor(color);
     const auto options = JKQTMathText::ParseOptions(JKQTMathText::StartWithMathMode);
     if (!math.parse(equation.latex.trimmed(), JKQTMathText::DefaultParser, options)
@@ -162,23 +179,26 @@ AiPanel::AiPanel(QWidget* parent)
       attachment(new QLabel),
       status(new QLabel),
       agent(new QComboBox),
+      theme(new QComboBox),
       question(new QLineEdit),
-      send(new QPushButton(tr("Send"))) {
+      send(new QPushButton(tr("Send"))),
+      zoomReset(new QPushButton) {
     setObjectName(QStringLiteral("askAiDock"));
     setAllowedAreas(Qt::RightDockWidgetArea);
     setFeatures(QDockWidget::DockWidgetClosable);
 
     auto* content = new QWidget;
+    content->setObjectName(QStringLiteral("aiPaneContent"));
+    content->setAutoFillBackground(true);
     auto* layout = new QVBoxLayout(content);
     auto* composer = new QHBoxLayout;
+    auto* appearance = new QHBoxLayout;
     transcript->setObjectName(QStringLiteral("aiTranscript"));
     transcript->setFrameShape(QFrame::NoFrame);
     transcript->setOpenLinks(false);
     transcript->setOpenExternalLinks(false);
     transcript->document()->setDocumentMargin(16);
-    QFont readingFont = transcript->font();
-    readingFont.setPointSize(11);
-    transcript->document()->setDefaultFont(readingFont);
+    transcript->viewport()->installEventFilter(this);
     attachment->setTextFormat(Qt::PlainText);
     attachment->setWordWrap(true);
     status->setTextFormat(Qt::PlainText);
@@ -187,7 +207,31 @@ AiPanel::AiPanel(QWidget* parent)
     agent->setAccessibleName(tr("AI agent"));
     question->setObjectName(QStringLiteral("aiQuestion"));
     question->setPlaceholderText(tr("Ask a question…"));
+    theme->setObjectName(QStringLiteral("aiTheme"));
+    theme->setAccessibleName(tr("Ask AI theme"));
+    theme->addItem(tr("System theme"), QStringLiteral("system"));
+    theme->addItem(tr("Light"), QStringLiteral("light"));
+    theme->addItem(tr("Dark"), QStringLiteral("dark"));
+    auto* zoomOut = new QPushButton(tr("−"));
+    auto* zoomIn = new QPushButton(tr("+"));
+    zoomOut->setObjectName(QStringLiteral("aiZoomOut"));
+    zoomIn->setObjectName(QStringLiteral("aiZoomIn"));
+    zoomReset->setObjectName(QStringLiteral("aiZoomReset"));
+    zoomOut->setAccessibleName(tr("Zoom out"));
+    zoomIn->setAccessibleName(tr("Zoom in"));
+    zoomReset->setAccessibleName(tr("Reset zoom"));
+    zoomOut->setToolTip(tr("Zoom out (Ctrl+−)"));
+    zoomIn->setToolTip(tr("Zoom in (Ctrl++)"));
+    zoomReset->setToolTip(tr("Reset zoom (Ctrl+0)"));
+    for (auto* zoomButton : {zoomOut, zoomReset, zoomIn})
+        zoomButton->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+    appearance->addWidget(theme);
+    appearance->addStretch();
+    appearance->addWidget(zoomOut);
+    appearance->addWidget(zoomReset);
+    appearance->addWidget(zoomIn);
     layout->addWidget(agent);
+    layout->addLayout(appearance);
     layout->addWidget(attachment);
     layout->addWidget(transcript, 1);
     layout->addWidget(status);
@@ -196,6 +240,28 @@ AiPanel::AiPanel(QWidget* parent)
     layout->addLayout(composer);
     setWidget(content);
     setMinimumWidth(260);
+    const auto settings = paneSettings();
+    const int themeIndex = theme->findData(settings.value(QStringLiteral("theme"), QStringLiteral("system")));
+    theme->setCurrentIndex(qMax(0, themeIndex));
+    connect(theme, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
+        paneSettings().setValue(QStringLiteral("theme"), theme->currentData());
+        applyTheme();
+    });
+    connect(zoomOut, &QPushButton::clicked, this, [this] { setZoom(zoomPercent - ZoomStep); });
+    connect(zoomReset, &QPushButton::clicked, this, [this] { setZoom(100); });
+    connect(zoomIn, &QPushButton::clicked, this, [this] { setZoom(zoomPercent + ZoomStep); });
+    const auto shortcut = [this](const QString& sequence, auto action) {
+        auto* key = new QShortcut(QKeySequence(sequence), this);
+        key->setContext(Qt::WidgetWithChildrenShortcut);
+        connect(key, &QShortcut::activated, this, action);
+    };
+    shortcut(QStringLiteral("Ctrl++"), [this] { setZoom(zoomPercent + ZoomStep); });
+    shortcut(QStringLiteral("Ctrl+="), [this] { setZoom(zoomPercent + ZoomStep); });
+    shortcut(QStringLiteral("Ctrl+-"), [this] { setZoom(zoomPercent - ZoomStep); });
+    shortcut(QStringLiteral("Ctrl+0"), [this] { setZoom(100); });
+    shortcut(QStringLiteral("Ctrl+D"), [this] { emit toggleRequested(); });
+    setZoom(settings.value(QStringLiteral("zoom"), 100).toInt());
+    applyTheme();
     connect(question, &QLineEdit::returnPressed, this, &AiPanel::submit);
     connect(agent, QOverload<int>::of(&QComboBox::activated), this, [this](int) {
         QTimer::singleShot(0, question, [this] { question->setFocus(Qt::OtherFocusReason); });
@@ -222,7 +288,7 @@ void AiPanel::beginConversation(const QString& context, const QString& text, con
     question->clear();
     status->clear();
     conversation = {};
-    equationNumber = 0;
+    transcriptMessages.clear();
     const QVariant previous = agent->currentData();
     agent->clear();
     if (!findAgentExecutable(QStringLiteral("python3")).isEmpty()) {
@@ -244,14 +310,9 @@ void AiPanel::beginConversation(const QString& context, const QString& text, con
     attachment->setText(source);
     attachment->setVisible(!source.isEmpty());
 
-    if (!image.isNull()) {
-        const QPixmap thumbnail = QPixmap::fromImage(image).scaled(480, 180, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-        const QUrl resource(QStringLiteral("sioyek://attachment/snapshot"));
-        transcript->document()->addResource(QTextDocument::ImageResource, resource, thumbnail);
-        QTextCursor(transcript->document()).insertImage(resource.toString());
-    } else if (!excerpt.isEmpty()) {
-        appendMessage(tr("Selected text"), excerpt, false);
-    }
+    if (snapshot.isNull() && !excerpt.isEmpty())
+        transcriptMessages.push_back({tr("Selected text"), excerpt, false});
+    rebuildTranscript();
     if (chooseAgent) {
         QTimer::singleShot(0, agent, [this] {
             if (isVisible()) {
@@ -260,8 +321,12 @@ void AiPanel::beginConversation(const QString& context, const QString& text, con
             }
         });
     } else {
-        question->setFocus(Qt::OtherFocusReason);
+        focusQuestion();
     }
+}
+
+void AiPanel::focusQuestion() {
+    question->setFocus(Qt::OtherFocusReason);
 }
 
 void AiPanel::closeEvent(QCloseEvent* event) {
@@ -272,6 +337,88 @@ void AiPanel::closeEvent(QCloseEvent* event) {
 }
 
 void AiPanel::appendMessage(const QString& speaker, const QString& message, bool markdown) {
+    transcriptMessages.push_back({speaker, message, markdown});
+    insertMessage(transcriptMessages.back());
+    transcript->verticalScrollBar()->setValue(transcript->verticalScrollBar()->maximum());
+}
+
+bool AiPanel::eventFilter(QObject* object, QEvent* event) {
+    if (object == transcript->viewport() && event->type() == QEvent::Wheel) {
+        auto* wheel = static_cast<QWheelEvent*>(event);
+        if (wheel->modifiers() & Qt::ControlModifier) {
+            const int delta = wheel->angleDelta().y() ? wheel->angleDelta().y() : wheel->pixelDelta().y();
+            if (delta)
+                setZoom(zoomPercent + (delta > 0 ? ZoomStep : -ZoomStep));
+            return true;
+        }
+    }
+    return QDockWidget::eventFilter(object, event);
+}
+
+void AiPanel::setZoom(int percent) {
+    zoomPercent = std::clamp(percent, MinimumZoom, MaximumZoom);
+    zoomReset->setText(tr("%1%").arg(zoomPercent));
+    paneSettings().setValue(QStringLiteral("zoom"), zoomPercent);
+    rebuildTranscript();
+}
+
+void AiPanel::applyTheme() {
+    QPalette colors = QApplication::palette();
+    const QString choice = theme->currentData().toString();
+    if (choice == QStringLiteral("system")) {
+        widget()->setStyleSheet({});
+    } else {
+        const bool dark = choice == QStringLiteral("dark");
+        const QColor background(dark ? "#242424" : "#f2f2f2");
+        const QColor paper(dark ? "#181818" : "#ffffff");
+        const QColor text(dark ? "#ebebeb" : "#202020");
+        const QColor link(dark ? "#85bfff" : "#174c91");
+        const QColor border(dark ? "#555555" : "#c6c6c6");
+        colors.setColor(QPalette::Window, background);
+        colors.setColor(QPalette::Base, paper);
+        colors.setColor(QPalette::Text, text);
+        colors.setColor(QPalette::WindowText, text);
+        colors.setColor(QPalette::Button, background);
+        colors.setColor(QPalette::ButtonText, text);
+        colors.setColor(QPalette::Link, link);
+        widget()->setStyleSheet(QStringLiteral(
+            "QWidget#aiPaneContent { background-color: %1; }"
+            "QTextBrowser, QLineEdit, QComboBox QAbstractItemView { background-color: %2; color: %3; }"
+            "QLabel { color: %3; }"
+            "QLineEdit, QPushButton, QComboBox { border: 1px solid %4; border-radius: 3px; padding: 3px; }"
+            "QPushButton, QComboBox { background-color: %1; color: %3; }")
+            .arg(background.name(), paper.name(), text.name(), border.name()));
+    }
+    setPalette(colors);
+    rebuildTranscript();
+}
+
+void AiPanel::rebuildTranscript() {
+    auto* scroll = transcript->verticalScrollBar();
+    const qreal scrollFraction = scroll->maximum() > 0
+        ? qreal(scroll->value()) / scroll->maximum()
+        : 0;
+    transcript->clear();
+    equationNumber = 0;
+    QFont readingFont = transcript->font();
+    const qreal zoom = zoomPercent / 100.0;
+    readingFont.setPointSizeF(11 * zoom);
+    transcript->document()->setDefaultFont(readingFont);
+    question->setFont(readingFont);
+
+    if (!snapshot.isNull()) {
+        const QPixmap thumbnail = QPixmap::fromImage(snapshot).scaled(
+            qRound(480 * zoom), qRound(180 * zoom), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        const QUrl resource(QStringLiteral("sioyek://attachment/snapshot"));
+        transcript->document()->addResource(QTextDocument::ImageResource, resource, thumbnail);
+        QTextCursor(transcript->document()).insertImage(resource.toString());
+    }
+    for (const auto& message : transcriptMessages)
+        insertMessage(message);
+    scroll->setValue(qRound(scrollFraction * scroll->maximum()));
+}
+
+void AiPanel::insertMessage(const Message& message) {
     auto* document = transcript->document();
     QTextCursor cursor(document);
     cursor.movePosition(QTextCursor::End);
@@ -283,21 +430,22 @@ void AiPanel::appendMessage(const QString& speaker, const QString& message, bool
     QTextCharFormat label;
     label.setFontWeight(QFont::DemiBold);
     label.setForeground(transcript->palette().link());
-    cursor.insertText(speaker, label);
+    cursor.insertText(message.speaker, label);
     cursor.insertBlock(QTextBlockFormat(), QTextCharFormat());
 
-    if (markdown) {
+    if (message.markdown) {
         std::vector<Equation> equations;
         QTextDocument rendered;
         auto features = QTextDocument::MarkdownFeatures(QTextDocument::MarkdownDialectGitHub);
         features |= QTextDocument::MarkdownNoHTML;
-        rendered.setMarkdown(protectEquations(message, equations, equationNumber), features);
+        rendered.setDefaultFont(document->defaultFont());
+        rendered.setMarkdown(protectEquations(message.content, equations, equationNumber), features);
         cursor.insertFragment(QTextDocumentFragment(&rendered));
         for (const Equation& equation : equations) {
             QTextCursor match = document->find(equation.token);
             if (match.isNull())
                 continue;
-            const QPixmap formula = renderEquation(equation, transcript->palette().text().color());
+            const QPixmap formula = renderEquation(equation, transcript->palette().text().color(), zoomPercent / 100.0);
             if (formula.isNull()) {
                 match.insertText(tr("[Equation could not be rendered]"));
                 continue;
@@ -320,9 +468,8 @@ void AiPanel::appendMessage(const QString& speaker, const QString& message, bool
             match.insertImage(format);
         }
     } else {
-        cursor.insertText(message, QTextCharFormat());
+        cursor.insertText(message.content, QTextCharFormat());
     }
-    transcript->verticalScrollBar()->setValue(transcript->verticalScrollBar()->maximum());
 }
 
 void AiPanel::stopRequest() {
