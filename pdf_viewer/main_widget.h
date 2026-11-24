@@ -1152,7 +1152,8 @@ public:
     void restore_document_layout_after_ai();
     void update_ai_layout();
     void update_ai_note_markers();
-    void save_ai_note(const QString& markdown);
+    void load_ai_chat(int page, const QString& excerpt = {}, const QImage& snapshot = {},
+                      const std::optional<AiNoteAnchor>& anchor = {}, bool choose_agent = false);
     void open_ai_note(const AiNoteAnchor& anchor);
     AiPanel* ai_panel = nullptr;
     struct AiSnip {
@@ -1161,15 +1162,11 @@ public:
         DocumentPos position;
     };
     std::optional<AiSnip> recent_ai_snip;
-    struct AiNoteSource {
-        std::wstring document_path;
-        AiNoteAnchor anchor;
-    };
     struct AiNoteMarker {
         AiNoteAnchor anchor;
         QToolButton* button = nullptr;
     };
-    std::optional<AiNoteSource> ai_note_source;
+    Document* ai_chat_document = nullptr;
     Document* ai_note_document = nullptr;
     std::optional<std::string> ai_note_checksum;
     std::vector<AiNoteMarker> ai_note_markers;

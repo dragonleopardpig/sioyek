@@ -10,6 +10,8 @@
 #include <QPicture>
 #include <QPointer>
 #include <vector>
+#include "ai_document_context.h"
+#include "book.h"
 
 class QLabel;
 class QComboBox;
@@ -18,6 +20,9 @@ class QNetworkReply;
 class QPushButton;
 class QProcess;
 class QTextBrowser;
+class QShortcut;
+class QThread;
+class DatabaseManager;
 
 class AiVectorRenderer : public QObject, public QTextObjectInterface {
     Q_OBJECT
@@ -43,18 +48,21 @@ class AiPanel : public QDockWidget {
     Q_OBJECT
 
 public:
-    explicit AiPanel(QWidget* parent);
+    explicit AiPanel(DatabaseManager* database, QWidget* parent);
     ~AiPanel() override;
-    void beginConversation(const QString& source, const QString& excerpt, const QImage& snapshot,
-                           bool chooseAgent = false);
+    void beginConversation(const QString& path, const std::string& checksum, const QByteArray& password,
+                           int page, const QString& excerpt, const QImage& snapshot,
+                           const std::optional<AiNoteAnchor>& anchor, bool chooseAgent = false);
+    void setReadingPage(int page);
+    bool isShowingChat() const;
     void showSavedNote(const QString& markdown);
     void focusQuestion();
-    void reportNoteSaveFailure();
 
 signals:
     void closed();
     void toggleRequested();
-    void noteMarkdownReady(const QString& markdown);
+    void notesChanged();
+    void resumeRequested();
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -68,7 +76,13 @@ private:
     };
 
     void submit();
-    void finishRequest(const QJsonObject& user, const QString& prompt, const QString& answer, const QString& error);
+    void sendRequest();
+    void finishRequest(const QString& answer, const QString& error = {});
+    void undoLast();
+    void updateRequestControls();
+    void refreshChatTranscript(bool scrollToEnd = false);
+    bool storeChat(AiChatState& updated, const std::optional<AiNoteUpdate>& note);
+    void readPdf();
     void appendMessage(const QString& speaker, const QString& message, bool markdown);
     void insertMessage(const Message& message);
     void rebuildTranscript();
@@ -77,6 +91,7 @@ private:
     void applyTheme();
     void stopRequest();
 
+    DatabaseManager* database;
     QTextBrowser* transcript;
     AiVectorRenderer* vectorRenderer;
     QLabel* attachment;
@@ -87,15 +102,27 @@ private:
     QPushButton* send;
     QPushButton* zoomReset;
     QPushButton* exportButton;
+    QPushButton* undoButton;
+    QPushButton* resumeButton;
+    QShortcut* cancelShortcut;
     QNetworkAccessManager network;
     QPointer<QNetworkReply> pending;
     QPointer<QProcess> agentProcess;
-    QJsonArray conversation;
+    QPointer<QThread> pdfReader;
+    std::optional<AiPdfContext> pdfContext;
+    AiChatState chat;
     std::vector<Message> transcriptMessages;
-    QString source;
+    QString documentPath;
+    std::string checksum;
+    QByteArray documentPassword;
+    int readingPage = -1;
+    int attachmentPage = -1;
     QString excerpt;
     QString noteMarkdown;
+    QString pendingPrompt;
+    QJsonObject submittedTurn;
     QImage snapshot;
+    std::optional<AiNoteAnchor> pendingAnchor;
     int graphicNumber = 0;
     int zoomPercent = 100;
 };

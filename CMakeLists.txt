@@ -34,6 +34,7 @@ qt_standard_project_setup()
 qt_add_executable(sioyek WIN32 MACOSX_BUNDLE
     resources.qrc
     pdf_viewer/ai_panel.cpp pdf_viewer/ai_panel.h
+    pdf_viewer/ai_document_context.cpp pdf_viewer/ai_document_context.h
     pdf_viewer/OpenWithApplication.cpp pdf_viewer/OpenWithApplication.h
     pdf_viewer/RunGuard.cpp pdf_viewer/RunGuard.h
     pdf_viewer/book.cpp pdf_viewer/book.h

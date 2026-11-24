@@ -381,6 +381,7 @@ public:
     bool needs_password();
     bool needs_authentication();
     bool apply_password(const char* password);
+    const std::string& get_document_password() const { return correct_password; }
     //std::optional<std::string> get_page_fastread_highlights(int page);
     std::vector<PagelessDocumentRect> get_highlighted_character_masks(int page);
     PagelessDocumentRect get_page_rect_no_cache(int page);

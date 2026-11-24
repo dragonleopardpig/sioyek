@@ -9,6 +9,7 @@
 #include <qopengl.h>
 #include <variant>
 #include <qjsonobject.h>
+#include <qjsonarray.h>
 #include <qjsonvalue.h>
 #include <qdatetime.h>
 #include <qpixmap.h>
@@ -46,6 +47,18 @@ struct OverviewState {
 struct AiNoteAnchor {
     QString id;
     DocumentPos position;
+};
+
+struct AiChatState {
+    QJsonArray turns;
+    QString previousMarkdown;
+    int agent = -1;
+    qint64 revision = 0;
+};
+
+struct AiNoteUpdate {
+    AiNoteAnchor anchor;
+    std::optional<QString> markdown;
 };
 
 struct OpenedBookState {

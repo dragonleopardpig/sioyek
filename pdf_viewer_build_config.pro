@@ -95,6 +95,7 @@ HEADERS += pdf_viewer/book.h \
            pdf_viewer/rapidfuzz_amalgamated.hpp \
            pdf_viewer/reference_numbers.h \
            pdf_viewer/ai_panel.h \
+           pdf_viewer/ai_document_context.h \
            pdf_viewer/input.h \
            pdf_viewer/main_widget.h \
            pdf_viewer/pdf_renderer.h \
@@ -119,6 +120,7 @@ HEADERS += pdf_viewer/book.h \
 
 SOURCES += pdf_viewer/book.cpp \
            pdf_viewer/ai_panel.cpp \
+           pdf_viewer/ai_document_context.cpp \
            pdf_viewer/config.cpp \
            pdf_viewer/database.cpp \
            pdf_viewer/document.cpp \

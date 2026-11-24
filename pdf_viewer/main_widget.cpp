@@ -1973,6 +1973,13 @@ void MainWidget::validate_render() {
     update();
     if (opengl_widget != nullptr) {
 #if defined(SIOYEK_JKQT_MATHTEXT_SUPPORT) && !defined(SIOYEK_ANDROID)
+        if (ai_panel && ai_panel->isVisible()) {
+            const int page = doc() ? get_current_page_number() : -1;
+            if (doc() != ai_chat_document)
+                load_ai_chat(page);
+            else
+                ai_panel->setReadingPage(page);
+        }
         update_ai_note_markers();
 #endif
         opengl_widget->update();
@@ -12818,11 +12825,11 @@ void MainWidget::snip_document(const AbsoluteRect& region) {
 
 void MainWidget::ask_ai(std::optional<AbsoluteRect> region, bool choose_agent) {
     QString excerpt;
-    QString source;
     QImage snapshot;
-    std::optional<AiNoteSource> note;
+    std::optional<AiNoteAnchor> anchor;
+    int page = -1;
     if (doc()) {
-        int page = get_current_page_number();
+        page = get_current_page_number();
         std::optional<DocumentPos> position;
         if (region) {
             position = region->to_document(doc()).top_left();
@@ -12862,19 +12869,27 @@ void MainWidget::ask_ai(std::optional<AbsoluteRect> region, bool choose_agent) {
         if (position) {
             page = position->page;
             if (page >= 0 && page < doc()->num_pages()) {
-                note = AiNoteSource{doc()->get_path(), {QUuid::createUuid().toString(QUuid::WithoutBraces), *position}};
+                anchor = AiNoteAnchor{QUuid::createUuid().toString(QUuid::WithoutBraces), *position};
             }
         }
-        source = tr("%1 · Page %2").arg(QFileInfo(QString::fromStdWString(doc()->get_path())).fileName()).arg(page + 1);
     }
     if (choose_agent) {
         recent_ai_snip.reset();
         choose_agent_after_snip = false;
     }
 
-    ai_note_source = std::move(note);
-    show_ai_panel(ai_note_source ? std::optional(ai_note_source->anchor.position) : std::nullopt);
-    ai_panel->beginConversation(source, excerpt, snapshot, choose_agent);
+    show_ai_panel(anchor ? std::optional(anchor->position) : std::nullopt);
+    load_ai_chat(page, excerpt, snapshot, anchor, choose_agent);
+}
+
+void MainWidget::load_ai_chat(int page, const QString& excerpt, const QImage& snapshot,
+                              const std::optional<AiNoteAnchor>& anchor, bool choose_agent) {
+    ai_chat_document = doc();
+    ai_panel->beginConversation(
+        ai_chat_document ? QString::fromStdWString(ai_chat_document->get_path()) : QString(),
+        ai_chat_document ? ai_chat_document->get_checksum() : std::string(),
+        ai_chat_document ? QByteArray::fromStdString(ai_chat_document->get_document_password()) : QByteArray(),
+        page, excerpt, snapshot, anchor, choose_agent);
 }
 
 void MainWidget::show_ai_panel(std::optional<DocumentPos> position) {
@@ -12886,11 +12901,17 @@ void MainWidget::show_ai_panel(std::optional<DocumentPos> position) {
     if (restore_two_page_after_ai)
         toggle_document_spread();
     if (!ai_panel) {
-        ai_panel = new AiPanel(this);
+        ai_panel = new AiPanel(db_manager, this);
         setAnimated(false);
         addDockWidget(Qt::RightDockWidgetArea, ai_panel);
         connect(ai_panel, &AiPanel::toggleRequested, this, &MainWidget::handle_toggle_two_page_mode);
-        connect(ai_panel, &AiPanel::noteMarkdownReady, this, &MainWidget::save_ai_note);
+        connect(ai_panel, &AiPanel::notesChanged, this, [this] {
+            ai_note_document = nullptr;
+            invalidate_render();
+        });
+        connect(ai_panel, &AiPanel::resumeRequested, this, [this] {
+            load_ai_chat(doc() ? get_current_page_number() : -1);
+        });
         connect(ai_panel, &AiPanel::closed, this, [this] {
             QTimer::singleShot(0, this, [this] {
                 if (!ai_panel->isVisible()) {
@@ -12914,24 +12935,6 @@ void MainWidget::show_ai_panel(std::optional<DocumentPos> position) {
     });
 }
 
-void MainWidget::save_ai_note(const QString& markdown) {
-    if (!ai_note_source)
-        return;
-    const auto& source = *ai_note_source;
-    const std::string checksum = checksummer->get_checksum(source.document_path);
-    if (checksum.empty() || !db_manager->save_ai_note(checksum, source.anchor, markdown)) {
-        ai_panel->reportNoteSaveFailure();
-        return;
-    }
-    if (doc() == ai_note_document && ai_note_checksum == checksum &&
-        std::none_of(ai_note_markers.begin(), ai_note_markers.end(), [&source](const AiNoteMarker& marker) {
-            return marker.anchor.id == source.anchor.id;
-        })) {
-        ai_note_markers.push_back({source.anchor});
-    }
-    invalidate_render();
-}
-
 void MainWidget::open_ai_note(const AiNoteAnchor& anchor) {
     if (!ai_note_checksum || doc() != ai_note_document)
         return;
@@ -12940,7 +12943,7 @@ void MainWidget::open_ai_note(const AiNoteAnchor& anchor) {
         set_status_message(tr("Could not open the saved AI answer.").toStdWString());
         return;
     }
-    ai_note_source.reset();
+    ai_chat_document = doc();
     show_ai_panel(anchor.position);
     ai_panel->showSavedNote(*markdown);
 }

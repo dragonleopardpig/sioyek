@@ -1299,29 +1299,102 @@ bool DatabaseManager::create_ai_notes_table() {
         "CREATE TABLE IF NOT EXISTS ai_notes ("
         "id TEXT PRIMARY KEY NOT NULL, document_checksum TEXT NOT NULL,"
         "page INTEGER NOT NULL, x REAL NOT NULL, y REAL NOT NULL, markdown TEXT NOT NULL);"
-        "CREATE INDEX IF NOT EXISTS ai_notes_document ON ai_notes (document_checksum);");
+        "CREATE INDEX IF NOT EXISTS ai_notes_document ON ai_notes (document_checksum);"
+        "CREATE TABLE IF NOT EXISTS ai_chats ("
+        "document_checksum TEXT PRIMARY KEY NOT NULL, state TEXT NOT NULL, revision INTEGER NOT NULL);");
 }
 
-bool DatabaseManager::save_ai_note(const std::string& checksum, const AiNoteAnchor& anchor,
-                                  const QString& markdown) {
-    std::lock_guard<std::recursive_mutex> lock(db_mutex);
+bool DatabaseManager::update_ai_note(const std::string& checksum, const AiNoteUpdate& note) {
     sqlite3_stmt* statement = nullptr;
-    const char* query = "INSERT INTO ai_notes (id, document_checksum, page, x, y, markdown)"
-        " VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET markdown = excluded.markdown;";
+    const char* query = note.markdown
+        ? "INSERT INTO ai_notes (id, document_checksum, page, x, y, markdown)"
+          " VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT(id) DO UPDATE SET markdown = excluded.markdown;"
+        : "DELETE FROM ai_notes WHERE id = ?1 AND document_checksum = ?2;";
     if (sqlite3_prepare_v2(global_db, query, -1, &statement, nullptr) != SQLITE_OK)
         return false;
 
-    const QByteArray id = anchor.id.toUtf8();
-    const QByteArray body = markdown.toUtf8();
+    const QByteArray id = note.anchor.id.toUtf8();
+    const QByteArray body = note.markdown ? note.markdown->toUtf8() : QByteArray();
     sqlite3_bind_text(statement, 1, id.constData(), id.size(), SQLITE_STATIC);
     sqlite3_bind_text(statement, 2, checksum.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_int(statement, 3, anchor.position.page);
-    sqlite3_bind_double(statement, 4, anchor.position.x);
-    sqlite3_bind_double(statement, 5, anchor.position.y);
-    sqlite3_bind_text(statement, 6, body.constData(), body.size(), SQLITE_STATIC);
+    if (note.markdown) {
+        sqlite3_bind_int(statement, 3, note.anchor.position.page);
+        sqlite3_bind_double(statement, 4, note.anchor.position.x);
+        sqlite3_bind_double(statement, 5, note.anchor.position.y);
+        sqlite3_bind_text(statement, 6, body.constData(), body.size(), SQLITE_STATIC);
+    }
     const bool saved = sqlite3_step(statement) == SQLITE_DONE;
     sqlite3_finalize(statement);
     return saved;
+}
+
+std::optional<AiChatState> DatabaseManager::select_ai_chat(const std::string& checksum) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex);
+    sqlite3_stmt* statement = nullptr;
+    const char* query = "SELECT state, revision FROM ai_chats WHERE document_checksum = ?;";
+    if (sqlite3_prepare_v2(global_db, query, -1, &statement, nullptr) != SQLITE_OK)
+        return {};
+
+    sqlite3_bind_text(statement, 1, checksum.c_str(), -1, SQLITE_STATIC);
+    const int result = sqlite3_step(statement);
+    AiChatState chat;
+    bool valid = result == SQLITE_DONE;
+    if (result == SQLITE_ROW) {
+        const QByteArray json(reinterpret_cast<const char*>(sqlite3_column_text(statement, 0)),
+                              sqlite3_column_bytes(statement, 0));
+        const auto data = QJsonDocument::fromJson(json);
+        valid = data.isObject();
+        const auto object = data.object();
+        chat.turns = object.value(QStringLiteral("turns")).toArray();
+        chat.previousMarkdown = object.value(QStringLiteral("previous")).toString();
+        chat.agent = object.value(QStringLiteral("agent")).toInt(-1);
+        chat.revision = sqlite3_column_int64(statement, 1);
+    }
+    sqlite3_finalize(statement);
+    if (!valid)
+        return {};
+
+    if (result == SQLITE_DONE) {
+        const auto anchors = select_ai_note_anchors(checksum);
+        if (!anchors.empty())
+            chat.previousMarkdown = select_ai_note_markdown(checksum, anchors.back().id).value_or(QString());
+    }
+    return chat;
+}
+
+bool DatabaseManager::save_ai_chat(const std::string& checksum, AiChatState& chat,
+                                  const std::optional<AiNoteUpdate>& note) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex);
+    if (sqlite3_exec(global_db, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr) != SQLITE_OK)
+        return false;
+
+    const QByteArray state = QJsonDocument(QJsonObject{
+        {QStringLiteral("turns"), chat.turns},
+        {QStringLiteral("previous"), chat.previousMarkdown},
+        {QStringLiteral("agent"), chat.agent}
+    }).toJson(QJsonDocument::Compact);
+    sqlite3_stmt* statement = nullptr;
+    const char* query = chat.revision == 0
+        ? "INSERT INTO ai_chats (document_checksum, state, revision) VALUES (?1, ?2, 1)"
+          " ON CONFLICT(document_checksum) DO NOTHING;"
+        : "UPDATE ai_chats SET state = ?2, revision = revision + 1"
+          " WHERE document_checksum = ?1 AND revision = ?3;";
+    bool saved = sqlite3_prepare_v2(global_db, query, -1, &statement, nullptr) == SQLITE_OK;
+    if (saved) {
+        sqlite3_bind_text(statement, 1, checksum.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_text(statement, 2, state.constData(), state.size(), SQLITE_STATIC);
+        if (chat.revision != 0)
+            sqlite3_bind_int64(statement, 3, chat.revision);
+        saved = sqlite3_step(statement) == SQLITE_DONE && sqlite3_changes(global_db) == 1;
+    }
+    sqlite3_finalize(statement);
+    if (saved && (!note || update_ai_note(checksum, *note)) &&
+        sqlite3_exec(global_db, "COMMIT;", nullptr, nullptr, nullptr) == SQLITE_OK) {
+        ++chat.revision;
+        return true;
+    }
+    sqlite3_exec(global_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+    return false;
 }
 
 std::vector<AiNoteAnchor> DatabaseManager::select_ai_note_anchors(const std::string& checksum) {
