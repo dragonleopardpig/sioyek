@@ -2282,6 +2282,35 @@ public:
 
 };
 
+#if defined(SIOYEK_JKQT_MATHTEXT_SUPPORT) && !defined(SIOYEK_ANDROID)
+class AskAi : public Command {
+public:
+    static inline const std::string cname = "ask_ai";
+    static inline const std::string hname = "Ask AI";
+    explicit AskAi(MainWidget* widget) : Command(cname, widget) {}
+    void perform() override { widget->ask_ai(); }
+};
+
+class AskAiSnapshot : public Command {
+public:
+    static inline const std::string cname = "ask_ai_snapshot";
+    static inline const std::string hname = "Ask AI about a snapshot";
+    explicit AskAiSnapshot(MainWidget* widget) : Command(cname, widget) {}
+
+    std::optional<Requirement> next_requirement(MainWidget*) override {
+        if (!region)
+            return Requirement{RequirementType::Rect, "Select a region to ask AI about"};
+        return {};
+    }
+
+    void set_rect_requirement(AbsoluteRect rect) override { region = rect; }
+    void perform() override { widget->ask_ai(region); }
+
+private:
+    std::optional<AbsoluteRect> region;
+};
+#endif
+
 class CopyScreenshotToClipboard : public Command {
 
 public:
@@ -7550,6 +7579,10 @@ CommandManager::CommandManager(ConfigManager* config_manager) {
     register_command<CopyDrawingsFromScratchpadCommand>();
     register_command<CopyScreenshotToScratchpad>();
     register_command<CopyScreenshotToClipboard>();
+#if defined(SIOYEK_JKQT_MATHTEXT_SUPPORT) && !defined(SIOYEK_ANDROID)
+    register_command<AskAi>();
+    register_command<AskAiSnapshot>();
+#endif
     register_command<AddHighlightCommand>();
     register_command<GotoTableOfContentsCommand>();
     register_command<GotoHighlightCommand>();

@@ -243,6 +243,13 @@ std::wstring CONTEXT_MENU_ITEMS_FOR_HIGHLIGHTS = L"delete_highlight|edit_selecte
 std::wstring CONTEXT_MENU_ITEMS_FOR_BOOKMARKS = L"delete_visible_annotation|edit_selected_annotation|move_selected_bookmark";
 std::wstring CONTEXT_MENU_ITEMS_FOR_OVERVIEW = L"";
 
+#if defined(SIOYEK_JKQT_MATHTEXT_SUPPORT) && !defined(SIOYEK_ANDROID)
+std::wstring AI_CHAT_MODEL = L"gemma4:26b";
+std::wstring AI_CHAT_API_URL;
+std::wstring AI_CHAT_API_MODEL;
+std::wstring AI_CHAT_AGENT_COMMAND;
+#endif
+
 bool RIGHT_CLICK_CONTEXT_MENU = false;
 #ifdef SIOYEK_MOBILE
 int NUM_CACHED_PAGES = 3;
@@ -1088,6 +1095,12 @@ ConfigManager::ConfigManager(const Path& default_path, const Path& auto_path, co
     add_string(L"context_menu_items_for_highlights", &CONTEXT_MENU_ITEMS_FOR_HIGHLIGHTS);
     add_string(L"context_menu_items_for_bookmarks", &CONTEXT_MENU_ITEMS_FOR_BOOKMARKS);
     add_string(L"context_menu_items_for_overview", &CONTEXT_MENU_ITEMS_FOR_OVERVIEW);
+#if defined(SIOYEK_JKQT_MATHTEXT_SUPPORT) && !defined(SIOYEK_ANDROID)
+    add_string(L"ai_chat_model", &AI_CHAT_MODEL);
+    add_string(L"ai_chat_api_url", &AI_CHAT_API_URL);
+    add_string(L"ai_chat_api_model", &AI_CHAT_API_MODEL);
+    add_string(L"ai_chat_agent_command", &AI_CHAT_AGENT_COMMAND);
+#endif
     add_string(L"paper_download_url_path", &PAPER_SEARCH_URL_PATH);
     add_string(L"paper_download_title_path", &PAPER_SEARCH_TILE_PATH);
     add_string(L"paper_download_contrib_path", &PAPER_SEARCH_CONTRIB_PATH);

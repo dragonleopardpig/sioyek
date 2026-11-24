@@ -23,6 +23,7 @@ extern float VERTICAL_MOVE_AMOUNT;
 extern float HORIZONTAL_MOVE_AMOUNT;
 
 class SelectionIndicator;
+class AiPanel;
 class QLocalSocket;
 class QLineEdit;
 class QTextEdit;
@@ -1141,6 +1142,12 @@ public:
     void handle_move_smooth_hold(bool down);
     void handle_move_smooth_horizontal_hold(bool left);
     void handle_toggle_two_page_mode();
+#if defined(SIOYEK_JKQT_MATHTEXT_SUPPORT) && !defined(SIOYEK_ANDROID)
+    void ask_ai(std::optional<AbsoluteRect> region = {});
+    void update_ai_layout();
+    AiPanel* ai_panel = nullptr;
+    bool restore_two_page_after_ai = false;
+#endif
     void ensure_zero_interval_timer();
     void set_last_performed_command(std::unique_ptr<Command> command);
     void make_current_menu_columns_equal();

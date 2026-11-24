@@ -14,6 +14,7 @@
 
 
 #include "coordinates.h"
+#include "ai_panel.h"
 #include <QPlainTextEdit>
 #include <QClipboard>
 #include <QTextDocument>
@@ -489,6 +490,10 @@ void MainWidget::resizeEvent(QResizeEvent* resize_event) {
     QWidget::resizeEvent(resize_event);
 
     main_window_width = size().width();
+#if defined(SIOYEK_JKQT_MATHTEXT_SUPPORT) && !defined(SIOYEK_ANDROID)
+    if (ai_panel && ai_panel->isVisible())
+        main_window_width = central_widget->width();
+#endif
     main_window_height = size().height();
 
     if (scratchpad) {
@@ -7857,10 +7862,16 @@ bool MainWidget::show_contextual_context_menu() {
         }
     }
     else if (is_pos_inside_selected_text(window_pos)) {
+#if defined(SIOYEK_JKQT_MATHTEXT_SUPPORT) && !defined(SIOYEK_ANDROID)
+        const QString items = QString::fromStdWString(CONTEXT_MENU_ITEMS_FOR_SELECTED_TEXT);
+        show_context_menu(items.isEmpty() ? "ask_ai" : items + "|ask_ai");
+        return true;
+#else
         if (CONTEXT_MENU_ITEMS_FOR_SELECTED_TEXT.size() > 0) {
             show_context_menu(QString::fromStdWString(CONTEXT_MENU_ITEMS_FOR_SELECTED_TEXT));
             return true;
         }
+#endif
     }
     else {
         int sel_highlight = main_document_view->get_highlight_index_in_pos(window_pos);
@@ -7868,10 +7879,16 @@ bool MainWidget::show_contextual_context_menu() {
 
         if (sel_highlight != -1) {
             set_selected_highlight_index(sel_highlight);
+#if defined(SIOYEK_JKQT_MATHTEXT_SUPPORT) && !defined(SIOYEK_ANDROID)
+            const QString items = QString::fromStdWString(CONTEXT_MENU_ITEMS_FOR_HIGHLIGHTS);
+            show_context_menu(items.isEmpty() ? "ask_ai" : items + "|ask_ai");
+            return true;
+#else
             if (CONTEXT_MENU_ITEMS_FOR_HIGHLIGHTS.size() > 0) {
                 show_context_menu(QString::fromStdWString(CONTEXT_MENU_ITEMS_FOR_HIGHLIGHTS));
                 return true;
             }
+#endif
         }
         if (sel_bookmark != -1) {
             set_selected_bookmark_index(sel_bookmark);
@@ -12696,6 +12713,13 @@ void MainWidget::handle_move_smooth_hold(bool down) {
 }
 
 void MainWidget::handle_toggle_two_page_mode() {
+#if defined(SIOYEK_JKQT_MATHTEXT_SUPPORT) && !defined(SIOYEK_ANDROID)
+    if (ai_panel && ai_panel->isVisible()) {
+        restore_two_page_after_ai = true;
+        ai_panel->close();
+        return;
+    }
+#endif
     main_document_view->toggle_two_page();
     if (NUM_CACHED_PAGES < 6) {
         if (main_document_view->is_two_page_mode()) {
@@ -12706,6 +12730,81 @@ void MainWidget::handle_toggle_two_page_mode() {
         }
     }
 }
+
+#if defined(SIOYEK_JKQT_MATHTEXT_SUPPORT) && !defined(SIOYEK_ANDROID)
+void MainWidget::ask_ai(std::optional<AbsoluteRect> region) {
+    QString excerpt;
+    QString source;
+    QImage snapshot;
+    if (doc()) {
+        int page = get_current_page_number();
+        if (region) {
+            page = region->to_document(doc()).page;
+            const WindowRect crop = region->to_window(main_document_view);
+            clear_selected_rect();
+            set_rect_select_mode(false);
+            const QImage frame = opengl_widget->grabFramebuffer();
+            const qreal scale = opengl_widget->devicePixelRatioF();
+            const QRect pixelBounds = QRectF(crop.x0 * scale, crop.y0 * scale,
+                                             crop.width() * scale, crop.height() * scale)
+                                          .toAlignedRect().intersected(frame.rect());
+            if (pixelBounds.isEmpty()) {
+                set_status_message(L"Could not capture the selected region.");
+                invalidate_render();
+                return;
+            }
+            snapshot = frame.copy(pixelBounds);
+            snapshot.setDevicePixelRatio(1);
+        } else if (!main_document_view->selected_character_rects.empty()) {
+            page = selection_begin.to_document(doc()).page;
+            excerpt = QString::fromStdWString(get_selected_text());
+        } else if (selected_highlight_index >= 0
+                   && static_cast<size_t>(selected_highlight_index) < doc()->get_highlights().size()) {
+            const auto& highlight = doc()->get_highlights().at(selected_highlight_index);
+            page = highlight.selection_begin.to_document(doc()).page;
+            excerpt = QString::fromStdWString(highlight.description);
+        }
+        source = tr("%1 · Page %2").arg(QFileInfo(QString::fromStdWString(doc()->get_path())).fileName()).arg(page + 1);
+    }
+
+    const bool opening = !ai_panel || !ai_panel->isVisible();
+    if (opening) {
+        restore_two_page_after_ai = main_document_view->is_two_page_mode();
+        if (restore_two_page_after_ai)
+            handle_toggle_two_page_mode();
+    }
+    if (!ai_panel) {
+        ai_panel = new AiPanel(this);
+        addDockWidget(Qt::RightDockWidgetArea, ai_panel);
+        connect(ai_panel, &AiPanel::closed, this, [this] {
+            QTimer::singleShot(0, this, [this] {
+                if (ai_panel->isVisible())
+                    return;
+                if (restore_two_page_after_ai && !main_document_view->is_two_page_mode())
+                    handle_toggle_two_page_mode();
+                restore_two_page_after_ai = false;
+                update_ai_layout();
+                setFocus(Qt::OtherFocusReason);
+            });
+        });
+    }
+    ai_panel->show();
+    if (opening)
+        resizeDocks({ai_panel}, {width() / 2}, Qt::Horizontal);
+    ai_panel->beginConversation(source, excerpt, snapshot);
+    QTimer::singleShot(0, this, &MainWidget::update_ai_layout);
+}
+
+void MainWidget::update_ai_layout() {
+    const auto viewport = opengl_widget->size();
+    main_window_width = central_widget->width();
+    status_label->resize(main_window_width, get_status_bar_height());
+    main_document_view->on_view_size_change(viewport.width(), viewport.height());
+    if (doc())
+        main_document_view->fit_to_page_width();
+    invalidate_render();
+}
+#endif
 
 
 void MainWidget::ensure_zero_interval_timer(){
@@ -12993,6 +13092,10 @@ QMenuBar* MainWidget::create_main_menu_bar(){
             new MenuNode{ "toggle_presentation_mode", "", {} },
             new MenuNode{ "-", "", {} },
             new MenuNode{ "toggle_two_page_mode", "", {} },
+#if defined(SIOYEK_JKQT_MATHTEXT_SUPPORT) && !defined(SIOYEK_ANDROID)
+            new MenuNode{ "ask_ai", "", {} },
+            new MenuNode{ "ask_ai_snapshot", "", {} },
+#endif
             new MenuNode{ "toggle_dark_mode", "", {} },
             new MenuNode{ "toggle_custom_color", "", {} },
             new MenuNode{ "toggle_scrollbar", "", {} },

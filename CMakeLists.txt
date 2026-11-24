@@ -12,6 +12,7 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core)
+option(SIOYEK_JKQT_MATHTEXT_SUPPORT "Enable JKQTMathText for PDF notes and Ask AI" OFF)
 if(QT_VERSION_MAJOR GREATER_EQUAL 6)
   find_package(Qt6 REQUIRED COMPONENTS
         Core Gui Widgets Network OpenGL QuickWidgets
@@ -32,6 +33,7 @@ qt_standard_project_setup()
 
 qt_add_executable(sioyek WIN32 MACOSX_BUNDLE
     resources.qrc
+    pdf_viewer/ai_panel.cpp pdf_viewer/ai_panel.h
     pdf_viewer/OpenWithApplication.cpp pdf_viewer/OpenWithApplication.h
     pdf_viewer/RunGuard.cpp pdf_viewer/RunGuard.h
     pdf_viewer/book.cpp pdf_viewer/book.h
@@ -130,6 +132,15 @@ target_link_libraries(sioyek PRIVATE
     Qt::TextToSpeech
     Qt::Widgets
 )
+
+if(SIOYEK_JKQT_MATHTEXT_SUPPORT)
+  find_path(JKQT_MATHTEXT_INCLUDE_DIR jkqtmathtext/jkqtmathtext.h REQUIRED)
+  find_library(JKQT_MATHTEXT_LIBRARY JKQTMathText${QT_VERSION_MAJOR}_Release REQUIRED)
+  find_library(JKQT_COMMON_LIBRARY JKQTCommon${QT_VERSION_MAJOR}_Release REQUIRED)
+  target_include_directories(sioyek PRIVATE ${JKQT_MATHTEXT_INCLUDE_DIR})
+  target_link_libraries(sioyek PRIVATE ${JKQT_MATHTEXT_LIBRARY} ${JKQT_COMMON_LIBRARY})
+  target_compile_definitions(sioyek PRIVATE SIOYEK_JKQT_MATHTEXT_SUPPORT)
+endif()
 
 if(NOT ANDROID)
   target_sources(sioyek PUBLIC
