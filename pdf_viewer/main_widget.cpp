@@ -12775,6 +12775,7 @@ void MainWidget::ask_ai(std::optional<AbsoluteRect> region) {
     }
     if (!ai_panel) {
         ai_panel = new AiPanel(this);
+        setAnimated(false);
         addDockWidget(Qt::RightDockWidgetArea, ai_panel);
         connect(ai_panel, &AiPanel::closed, this, [this] {
             QTimer::singleShot(0, this, [this] {
@@ -12796,6 +12797,7 @@ void MainWidget::ask_ai(std::optional<AbsoluteRect> region) {
 }
 
 void MainWidget::update_ai_layout() {
+    layout()->activate();
     const auto viewport = opengl_widget->size();
     main_window_width = central_widget->width();
     status_label->resize(main_window_width, get_status_bar_height());
