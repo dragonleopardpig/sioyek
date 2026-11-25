@@ -12938,14 +12938,15 @@ void MainWidget::show_ai_panel(std::optional<DocumentPos> position) {
 void MainWidget::open_ai_note(const AiNoteAnchor& anchor) {
     if (!ai_note_checksum || doc() != ai_note_document)
         return;
-    const auto markdown = db_manager->select_ai_note_markdown(*ai_note_checksum, anchor.id);
+    const auto checksum = *ai_note_checksum;
+    const auto markdown = db_manager->select_ai_note_markdown(checksum, anchor.id);
     if (!markdown) {
         set_status_message(tr("Could not open the saved AI answer.").toStdWString());
         return;
     }
     ai_chat_document = doc();
     show_ai_panel(anchor.position);
-    ai_panel->showSavedNote(*markdown);
+    ai_panel->showSavedNote(*markdown, checksum, anchor.id);
 }
 
 void MainWidget::update_ai_note_markers() {

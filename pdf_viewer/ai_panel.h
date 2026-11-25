@@ -55,7 +55,7 @@ public:
                            const std::optional<AiNoteAnchor>& anchor, bool chooseAgent = false);
     void setReadingPage(int page);
     bool isShowingChat() const;
-    void showSavedNote(const QString& markdown);
+    void showSavedNote(const QString& markdown, const std::string& documentChecksum, const QString& selectionId);
     void focusQuestion();
 
 signals:

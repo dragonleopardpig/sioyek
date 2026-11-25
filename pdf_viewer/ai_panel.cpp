@@ -144,12 +144,15 @@ std::optional<AiNoteAnchor> turnAnchor(const QJsonObject& turn) {
         static_cast<float>(data.value(QStringLiteral("y")).toDouble())}};
 }
 
-QString chatMarkdown(const AiChatState& chat) {
-    if (chat.turns.isEmpty())
-        return chat.previousMarkdown;
-    QString text = chat.previousMarkdown.isEmpty() ? QStringLiteral("# Ask AI\n") : chat.previousMarkdown;
+QString selectionMarkdown(const AiChatState& chat, const QString& selectionId) {
+    QString text;
     for (const auto item : chat.turns) {
         const auto turn = item.toObject();
+        const auto id = turn.value(QStringLiteral("anchor")).toObject().value(QStringLiteral("id")).toString();
+        if (id != selectionId)
+            continue;
+        if (text.isEmpty())
+            text = QStringLiteral("# Ask AI\n");
         const auto source = turn.value(QStringLiteral("source")).toString();
         if (!source.isEmpty())
             text += QStringLiteral("\n") + quoteMarkdown(source) + u'\n';
@@ -160,6 +163,15 @@ QString chatMarkdown(const AiChatState& chat) {
             + QStringLiteral("\n\n## Answer\n\n") + turn.value(QStringLiteral("answer")).toString() + u'\n';
     }
     return text;
+}
+
+QString currentSessionMarkdown(const AiChatState& chat, const std::optional<AiNoteAnchor>& selection) {
+    if (selection)
+        return selectionMarkdown(chat, selection->id);
+    if (chat.turns.isEmpty())
+        return chat.previousMarkdown;
+    const auto latest = turnAnchor(chat.turns.last().toObject());
+    return selectionMarkdown(chat, latest ? latest->id : QString());
 }
 
 QString agentExecutable(Agent agent) {
@@ -622,14 +634,17 @@ void AiPanel::focusQuestion() {
         question->setFocus(Qt::OtherFocusReason);
 }
 
-void AiPanel::showSavedNote(const QString& markdown) {
+void AiPanel::showSavedNote(const QString& markdown, const std::string& documentChecksum, const QString& selectionId) {
     stopRequest();
     setWindowTitle(tr("Saved AI answer"));
     excerpt.clear();
     snapshot = {};
     pendingAnchor.reset();
     attachmentPage = -1;
-    noteMarkdown = markdown;
+    // Earlier versions saved the whole transcript against each marker.
+    const auto saved = database->select_ai_chat(documentChecksum);
+    const auto scoped = saved ? selectionMarkdown(*saved, selectionId) : QString();
+    noteMarkdown = scoped.isEmpty() ? markdown : scoped;
     exportButton->setEnabled(true);
     agent->hide();
     undoButton->hide();
@@ -638,7 +653,7 @@ void AiPanel::showSavedNote(const QString& markdown) {
     question->hide();
     send->hide();
     status->clear();
-    transcriptMessages = {{ {}, markdown, true }};
+    transcriptMessages = {{ {}, noteMarkdown, true }};
     rebuildTranscript();
     transcript->verticalScrollBar()->setValue(0);
     focusQuestion();
@@ -839,7 +854,7 @@ void AiPanel::refreshChatTranscript(bool scrollToEnd) {
         transcriptMessages.push_back({tr("Selected text"), excerpt, false});
     if (!pendingPrompt.isEmpty())
         transcriptMessages.push_back({tr("You"), pendingPrompt, false});
-    noteMarkdown = chatMarkdown(chat);
+    noteMarkdown = currentSessionMarkdown(chat, pendingAnchor);
     exportButton->setEnabled(!noteMarkdown.isEmpty());
     rebuildTranscript();
     if (scrollToEnd)
@@ -864,12 +879,8 @@ void AiPanel::undoLast() {
     const auto anchor = turnAnchor(last);
     std::optional<AiNoteUpdate> note;
     if (anchor) {
-        note = AiNoteUpdate{*anchor, std::nullopt};
-        for (const auto item : updated.turns) {
-            const auto earlier = turnAnchor(item.toObject());
-            if (earlier && earlier->id == anchor->id)
-                note->markdown = chatMarkdown(updated);
-        }
+        const auto remaining = selectionMarkdown(updated, anchor->id);
+        note = AiNoteUpdate{*anchor, remaining.isEmpty() ? std::nullopt : std::optional(remaining)};
     }
     if (!storeChat(updated, note)) {
         status->setText(tr("Could not undo the exchange. Reopen this chat if it changed in another window."));
@@ -1150,12 +1161,12 @@ void AiPanel::finishRequest(const QString& answer, const QString& error) {
     const auto anchor = turnAnchor(turn);
     std::optional<AiNoteUpdate> note;
     if (anchor)
-        note = AiNoteUpdate{*anchor, chatMarkdown(updated)};
+        note = AiNoteUpdate{*anchor, selectionMarkdown(updated, anchor->id)};
     if (!storeChat(updated, note)) {
         refreshChatTranscript(true);
         appendMessage(tr("You"), prompt, false);
         appendMessage(tr("AI"), answer, true);
-        noteMarkdown = chatMarkdown(updated);
+        noteMarkdown = currentSessionMarkdown(updated, anchor);
         exportButton->setEnabled(true);
         question->setText(prompt);
         status->setText(tr("The answer could not be saved. The chat may have changed in another window."));
